@@ -12,7 +12,20 @@
   },
   "frontend": {
     "language": "react",
-    "sourceDirectory": "./frontend"
+    "sourceDirectory": "./frontend",
+    "port": 5173
   },
-  "contracts": {}
+  "contracts": {
+    "language": "sCrypt",
+    "baseDirectory": "./backend"
+  },
+  "configs": [
+    {
+      "name": "Local LARS",
+      "network": "mainnet",
+      "provider": "LARS",
+      "FQDN": "bullfrog-inviting-hen.ngrok-free.app",
+      "run": ["backend", "frontend"]
+    }
+  ]
 }

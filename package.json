@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@bsv/cars-cli": "^1.2.4",
-    "@bsv/lars": "^1.5.1"
+    "@bsv/sdk": "^1.6.20"
+  },
+  "devDependencies": {
+    "@bsv/lars": "^1.5.3"
   }
 }
