@@ -1,43 +1,23 @@
-// Minimal React UI to show MetaNet Desktop identity key
-import { useState } from 'react'
 import './App.css'
-import { getIdentityKey } from './auth/authFetch'
+import { useIdentity } from './context/IdentityContext'
+import Dashboard from './components/dashboard/Dashboard'
 
 function App() {
-  const [identityKey, setIdentityKey] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { identityKey, connectToWallet } = useIdentity()
 
-  const handleConnect = async () => {
-    try {
-      const key = await getIdentityKey()
-      setIdentityKey(key)
-      setError(null)
-    } catch (err: any) {
-      setError(err.message || 'Failed to connect to MetaNet Desktop.')
-      setIdentityKey(null)
-    }
+  // If identityKey not found, show connect screen
+  if (!identityKey) {
+    return (
+      <div style={{ padding: '4rem', textAlign: 'center' }}>
+        <h1>Welcome</h1>
+        <p>Click below to connect to MetaNet Desktop.</p>
+        <button onClick={connectToWallet}>Connect to Wallet</button>
+      </div>
+    )
   }
 
-  return (
-    <div style={{ padding: '2rem' }}>
-      <h1>🔐 MetaNet Identity Viewer</h1>
-      <button onClick={handleConnect}>Connect to Wallet</button>
-
-      {identityKey && (
-        <div style={{ marginTop: '1rem' }}>
-          <h3>🆔 Identity Key</h3>
-          <pre style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{identityKey}</pre>
-        </div>
-      )}
-
-      {error && (
-        <div style={{ marginTop: '1rem', color: 'red' }}>
-          <h3>❌ Error</h3>
-          <p>{error}</p>
-        </div>
-      )}
-    </div>
-  )
+  // If identityKey exists, show the dashboard
+  return <Dashboard />
 }
 
 export default App
