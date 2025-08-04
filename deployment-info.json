@@ -1,24 +1,38 @@
 {
   "schema": "bsv-app",
   "schemaVersion": "1.0",
+
   "topicManagers": {
-    "tm_template": "./backend/src/topic-managers/TemplateTopicManager.ts"
+    "tm_template": "./backend/src/topic-managers/TemplateTopicManager.ts",
+
+    "tm_cathays": "./backend/src/overlays/energy/cardiff/cathays/topic-managers/CathaysTopicManager.ts"
+
   },
+
   "lookupServices": {
     "ls_template": {
       "serviceFactory": "./backend/src/lookup-services/TemplateLookupServiceFactory.ts",
       "hydrateWith": "mongo"
+    },
+
+    "ls_cathays": {
+      "serviceFactory": "./backend/src/overlays/energy/cardiff/cathays/lookup-services/CathaysLookupServiceFactory.ts",
+      "hydrateWith": "mongo"
     }
+
   },
+
   "frontend": {
     "language": "react",
     "sourceDirectory": "./frontend",
     "port": 5173
   },
+
   "contracts": {
     "language": "sCrypt",
     "baseDirectory": "./backend"
   },
+
   "configs": [
     {
       "name": "Local LARS",
