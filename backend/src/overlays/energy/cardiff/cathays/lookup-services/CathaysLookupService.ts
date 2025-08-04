@@ -52,7 +52,7 @@ export class CathaysLookupService implements LookupService {
   }
 
   async lookup(question: LookupQuestion): Promise<LookupFormula> {
-    if (!question || question.service !== 'ls_energy_cathays') {
+    if (!question || question.service !== 'ls_cathays') {
       throw new Error('Unsupported lookup service')
     }
 
