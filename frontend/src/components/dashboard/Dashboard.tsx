@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import OverlaysTab from './OverlaysTab'
+import OverlaysTab from './overlays/OverlaysTab'
 import OrdersTab from './orders/OrdersTab'
-import HistoryTab from './HistoryTab'
-import BasketTab from './BasketTab'
+import HistoryTab from './history/HistoryTab'
+import BasketTab from './baskets/BasketTab'
 
 function Dashboard() {
   const [activeTab, setActiveTab] = useState<'overlays' | 'orders' | 'history' | 'basket'>('overlays')
