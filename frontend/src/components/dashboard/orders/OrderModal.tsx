@@ -1,41 +1,59 @@
-import type { Order } from './OrderItem'
+import type { UIOrder } from './OrderItem'
 
-type Props = {
-  order: Order
-  onClose: () => void
-  onCommit: (order: Order) => void
-}
+type Props = { order: UIOrder; onClose: () => void; onCommit: (o: UIOrder) => void }
 
 function OrderModal({ order, onClose, onCommit }: Props) {
-  const formattedPrice = order.currency === 'SATS'
-    ? `sats${order.price}/kWh`
-    : `£${order.price}/kWh`
+  const priceText = order.currency === 'SATS' ? `sats${order.price}/kWh` : `£${order.price}/kWh`
+  const shortKey = order.creatorKey
+    ? `${order.creatorKey.slice(0, 6)}…${order.creatorKey.slice(-6)}`
+    : '—'
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: '50%',
-      left: '50%',
-      transform: 'translate(-50%, -50%)',
-      backgroundColor: '#fff',
-      color: '#000',
-      padding: '2rem',
-      borderRadius: '10px',
-      boxShadow: '0 0 10px rgba(0,0,0,0.3)',
-      zIndex: 9999
-    }}>
-      <h3>{order.type.toUpperCase()} – {order.quantity} kWh</h3>
-      <p><strong>Price:</strong> {formattedPrice}</p>
-      <p><strong>Expires:</strong> {order.expiryDate}</p>
-      <p><strong>Overlay:</strong> {order.overlay}</p>
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'grid',
+        placeItems: 'center',
+        background: 'rgba(0,0,0,0.4)',
+        zIndex: 9999
+      }}
+    >
+      <div
+        style={{
+          background: '#fff',
+          color: '#000',
+          padding: '1.5rem 2rem',
+          borderRadius: 12,
+          width: 460,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+        }}
+      >
+        <h3 style={{ textAlign: 'center', margin: 0 }}>
+          {order.type.toUpperCase()} – {order.quantity} kWh
+        </h3>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2rem' }}>
-        <button onClick={() => onCommit(order)} style={{ backgroundColor: 'black', color: 'white', padding: '0.5rem 1rem' }}>
-          🤝 Commit
-        </button>
-        <button onClick={onClose} style={{ backgroundColor: 'black', color: 'white', padding: '0.5rem 1rem' }}>
-          ❌ Close
-        </button>
+        <div style={{ marginTop: 16, display: 'grid', rowGap: 6 }}>
+          <p><strong>Price:</strong> {priceText}</p>
+          <p><strong>Expires:</strong> {new Date(order.expiryISO).toLocaleString()}</p>
+          <p><strong>Overlay:</strong> {order.overlayLabel}</p>
+          <p><strong>Created:</strong> {new Date(order.createdISO).toLocaleString()}</p>
+          <p><strong>Topic:</strong> {order.topic}</p>
+          <p><strong>Creator Key:</strong> {shortKey}</p>
+          <p><strong>Parent:</strong> {order.parent ?? 'null'}</p>
+          <p style={{ wordBreak: 'break-all', opacity: 0.8 }}>
+            <strong>TXID:</strong> {order.txid}
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
+          <button onClick={() => onCommit(order)} style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}>
+            🤝 Commit
+          </button>
+          <button onClick={onClose} style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}>
+            ❌ Close
+          </button>
+        </div>
       </div>
     </div>
   )

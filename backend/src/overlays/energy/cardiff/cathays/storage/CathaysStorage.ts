@@ -1,6 +1,17 @@
-// 📁 src/overlays/energy/cardiff/cathays/storage/CathaysStorage.ts
+// Persist the fields exactly as seen so the UI can query/filter later.
+// We also store derived 'type' (fields[0]) and 'topic' (fields[1]) for convenience.
+
 import { Collection, Db } from 'mongodb'
-import { CathaysEnergyRecord, UTXOReference } from '../../../../../types.ts'
+import { UTXOReference } from '../../../../../types.ts'
+
+export type CathaysEnergyRecord = {
+  txid: string
+  outputIndex: number
+  fields: string[]
+  type: string
+  topic: string
+  createdAt: Date
+}
 
 export class CathaysStorage {
   private readonly records: Collection<CathaysEnergyRecord>
@@ -14,8 +25,8 @@ export class CathaysStorage {
       txid,
       outputIndex,
       fields,
-      type: 'energy_order',
-      location: 'Cardiff, Cathays',
+      type: fields[0] ?? 'unknown',
+      topic: fields[1] ?? 'unknown',
       createdAt: new Date()
     })
   }

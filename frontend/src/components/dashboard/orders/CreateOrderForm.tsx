@@ -1,12 +1,17 @@
+// Your existing Orders form, minimally touched:
+// - Keeps the same styles and structure.
+// - Uses <input type="datetime-local"> for expiry (includes time).
+// - Emits the overlay label (we convert to topic in createTx()).
+
 import { useState } from 'react'
 
 export type OrderFormData = {
-  type: 'offer' | 'demand'
+  type: 'offer' | 'demand'         // Orders UI only creates these two
   quantity: number
   price: number
   currency: 'GBP' | 'SATS'
-  expiryDate: string
-  overlay: string
+  expiryDate: string               // 'YYYY-MM-DDTHH:MM'
+  overlay: string                  // label; e.g. 'Cardiff – Cathays'
 }
 
 type Props = {
@@ -51,12 +56,7 @@ function CreateOrderForm({ onSubmit }: Props) {
     })
   }
 
-  const labelStyle = {
-    marginBottom: '0.25rem',
-    fontWeight: 500,
-    textAlign: 'left' as const
-  }
-
+  const labelStyle = { marginBottom: '0.25rem', fontWeight: 500, textAlign: 'left' as const }
   const inputStyle = {
     padding: '0.5rem',
     fontSize: '1rem',
@@ -66,19 +66,8 @@ function CreateOrderForm({ onSubmit }: Props) {
     borderRadius: '4px',
     width: '250px'
   }
-
-  const priceInputStyle = {
-    ...inputStyle,
-    width: '170px'
-  }
-
-  const currencyButtonStyle = {
-    ...inputStyle,
-    width: '70px',
-    textAlign: 'center' as const,
-    padding: '0.5rem',
-    cursor: 'pointer'
-  }
+  const priceInputStyle = { ...inputStyle, width: '170px' }
+  const currencyButtonStyle = { ...inputStyle, width: '70px', textAlign: 'center' as const, padding: '0.5rem', cursor: 'pointer' }
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
@@ -94,46 +83,22 @@ function CreateOrderForm({ onSubmit }: Props) {
       {/* Quantity */}
       <div style={{ marginBottom: '1rem' }}>
         <label style={labelStyle}>Quantity (kWh):</label>
-        <input
-          type="number"
-          name="quantity"
-          value={formData.quantity}
-          onChange={handleChange}
-          style={inputStyle}
-          min={0}
-        />
+        <input type="number" name="quantity" value={formData.quantity} onChange={handleChange} style={inputStyle} min={0}/>
       </div>
 
       {/* Price & Currency Toggle */}
       <div style={{ marginBottom: '1rem', width: '250px' }}>
-        <label style={labelStyle}>
-          Price ({formData.currency === 'GBP' ? '£' : 'sats'} / kWh):
-        </label>
+        <label style={labelStyle}>Price ({formData.currency === 'GBP' ? '£' : 'sats'} / kWh):</label>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <input
-            type="number"
-            name="price"
-            value={formData.price}
-            onChange={handleChange}
-            style={priceInputStyle}
-            min={0}
-          />
-          <button type="button" onClick={toggleCurrency} style={currencyButtonStyle}>
-            {formData.currency}
-          </button>
+          <input type="number" name="price" value={formData.price} onChange={handleChange} style={priceInputStyle} min={0}/>
+          <button type="button" onClick={toggleCurrency} style={currencyButtonStyle}>{formData.currency}</button>
         </div>
       </div>
 
-      {/* Expiry */}
+      {/* Expiry with time */}
       <div style={{ marginBottom: '1rem' }}>
-        <label style={labelStyle}>Expiry Date:</label>
-        <input
-          type="date"
-          name="expiryDate"
-          value={formData.expiryDate}
-          onChange={handleChange}
-          style={inputStyle}
-        />
+        <label style={labelStyle}>Expiry Date & Time:</label>
+        <input type="datetime-local" name="expiryDate" value={formData.expiryDate} onChange={handleChange} style={inputStyle}/>
       </div>
 
       {/* Overlay */}
@@ -145,17 +110,7 @@ function CreateOrderForm({ onSubmit }: Props) {
       </div>
 
       {/* Submit */}
-      <button
-        type="submit"
-        style={{
-          ...inputStyle,
-          backgroundColor: '#007bff',
-          color: '#fff',
-          fontWeight: 'bold',
-          marginTop: '0.5rem',
-          width: '250px'
-        }}
-      >
+      <button type="submit" style={{ ...inputStyle, backgroundColor: '#007bff', color: '#fff', fontWeight: 'bold', marginTop: '0.5rem', width: '250px', cursor: 'pointer' }}>
         Create Order
       </button>
     </form>

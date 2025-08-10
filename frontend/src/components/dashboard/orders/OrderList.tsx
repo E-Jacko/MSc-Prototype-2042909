@@ -1,20 +1,13 @@
-import OrderItem from './OrderItem'
-import type { Order } from './OrderItem'
+import OrderItem, { type UIOrder } from './OrderItem'
 
-type Props = {
-  orders: Order[]
-  onSelect: (order: Order) => void
-}
+type Props = { orders: UIOrder[]; onSelect: (o: UIOrder) => void }
 
 function OrderList({ orders, onSelect }: Props) {
-  if (orders.length === 0) {
-    return <p>No active orders found.</p>
-  }
-
+  if (!orders.length) return <p>No active orders found.</p>
   return (
     <div>
-      {orders.map(order => (
-        <OrderItem key={order.id} order={order} onClick={() => onSelect(order)} />
+      {orders.map((o) => (
+        <OrderItem key={o.txid} order={o} onClick={() => onSelect(o)} />
       ))}
     </div>
   )
