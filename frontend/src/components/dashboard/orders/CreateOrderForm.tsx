@@ -1,24 +1,20 @@
-// Your existing Orders form, minimally touched:
-// - Keeps the same styles and structure.
-// - Uses <input type="datetime-local"> for expiry (includes time).
-// - Emits the overlay label (we convert to topic in createTx()).
+// simple create form with uniform width and labels above
 
 import { useState } from 'react'
 
 export type OrderFormData = {
-  type: 'offer' | 'demand'         // Orders UI only creates these two
+  type: 'offer' | 'demand'
   quantity: number
   price: number
   currency: 'GBP' | 'SATS'
-  expiryDate: string               // 'YYYY-MM-DDTHH:MM'
-  overlay: string                  // label; e.g. 'Cardiff – Cathays'
+  expiryDate: string            // 'YYYY-MM-DDTHH:MM'
+  overlay: string               // e.g. 'Cardiff – Cathays'
 }
 
-type Props = {
-  onSubmit: (data: OrderFormData) => void
-}
+type Props = { onSubmit: (data: OrderFormData) => void }
 
 function CreateOrderForm({ onSubmit }: Props) {
+  // local form state
   const [formData, setFormData] = useState<OrderFormData>({
     type: 'offer',
     quantity: 0,
@@ -28,6 +24,36 @@ function CreateOrderForm({ onSubmit }: Props) {
     overlay: 'Cardiff – Cathays'
   })
 
+  // shared sizing so fields line up nicely
+  const FIELD_WIDTH = 280
+  const GAP_PX = 8
+  const BTN_W = 70
+
+  // tiny styles
+  const fieldWrap: React.CSSProperties = { marginBottom: '1rem', width: FIELD_WIDTH }
+  const labelStyle: React.CSSProperties = { marginBottom: '0.25rem', fontWeight: 500, textAlign: 'left' }
+  const inputStyle: React.CSSProperties = {
+    padding: '0.5rem',
+    fontSize: '1rem',
+    backgroundColor: '#1f1f1f',
+    border: '1px solid #555',
+    color: 'white',
+    borderRadius: 4,
+    width: FIELD_WIDTH
+  }
+  const currencyBtn: React.CSSProperties = {
+    ...inputStyle,
+    width: BTN_W,
+    textAlign: 'center',
+    padding: '0.5rem',
+    cursor: 'pointer'
+  }
+  const priceInput: React.CSSProperties = {
+    ...inputStyle,
+    width: `calc(${FIELD_WIDTH}px - ${GAP_PX}px - ${BTN_W}px)`
+  }
+
+  // handle input changes
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData(prev => ({
@@ -36,13 +62,12 @@ function CreateOrderForm({ onSubmit }: Props) {
     }))
   }
 
+  // swap price unit
   const toggleCurrency = () => {
-    setFormData(prev => ({
-      ...prev,
-      currency: prev.currency === 'GBP' ? 'SATS' : 'GBP'
-    }))
+    setFormData(prev => ({ ...prev, currency: prev.currency === 'GBP' ? 'SATS' : 'GBP' }))
   }
 
+  // submit upstream and reset
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onSubmit(formData)
@@ -56,23 +81,10 @@ function CreateOrderForm({ onSubmit }: Props) {
     })
   }
 
-  const labelStyle = { marginBottom: '0.25rem', fontWeight: 500, textAlign: 'left' as const }
-  const inputStyle = {
-    padding: '0.5rem',
-    fontSize: '1rem',
-    backgroundColor: '#1f1f1f',
-    border: '1px solid #555',
-    color: 'white',
-    borderRadius: '4px',
-    width: '250px'
-  }
-  const priceInputStyle = { ...inputStyle, width: '170px' }
-  const currencyButtonStyle = { ...inputStyle, width: '70px', textAlign: 'center' as const, padding: '0.5rem', cursor: 'pointer' }
-
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-      {/* Type */}
-      <div style={{ marginBottom: '1rem' }}>
+      {/* type */}
+      <div style={fieldWrap}>
         <label style={labelStyle}>Type:</label>
         <select name="type" value={formData.type} onChange={handleChange} style={inputStyle}>
           <option value="offer">Offer</option>
@@ -80,37 +92,48 @@ function CreateOrderForm({ onSubmit }: Props) {
         </select>
       </div>
 
-      {/* Quantity */}
-      <div style={{ marginBottom: '1rem' }}>
+      {/* quantity */}
+      <div style={fieldWrap}>
         <label style={labelStyle}>Quantity (kWh):</label>
         <input type="number" name="quantity" value={formData.quantity} onChange={handleChange} style={inputStyle} min={0}/>
       </div>
 
-      {/* Price & Currency Toggle */}
-      <div style={{ marginBottom: '1rem', width: '250px' }}>
+      {/* price + currency toggle (row totals exactly FIELD_WIDTH) */}
+      <div style={fieldWrap}>
         <label style={labelStyle}>Price ({formData.currency === 'GBP' ? '£' : 'sats'} / kWh):</label>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <input type="number" name="price" value={formData.price} onChange={handleChange} style={priceInputStyle} min={0}/>
-          <button type="button" onClick={toggleCurrency} style={currencyButtonStyle}>{formData.currency}</button>
+        <div style={{ display: 'flex', gap: GAP_PX }}>
+          <input type="number" name="price" value={formData.price} onChange={handleChange} style={priceInput} min={0}/>
+          <button type="button" onClick={toggleCurrency} style={currencyBtn}>{formData.currency}</button>
         </div>
       </div>
 
-      {/* Expiry with time */}
-      <div style={{ marginBottom: '1rem' }}>
+      {/* expiry with time */}
+      <div style={fieldWrap}>
         <label style={labelStyle}>Expiry Date & Time:</label>
         <input type="datetime-local" name="expiryDate" value={formData.expiryDate} onChange={handleChange} style={inputStyle}/>
       </div>
 
-      {/* Overlay */}
-      <div style={{ marginBottom: '1.5rem' }}>
+      {/* overlay */}
+      <div style={{ ...fieldWrap, marginBottom: '1.5rem' }}>
         <label style={labelStyle}>Overlay:</label>
         <select name="overlay" value={formData.overlay} onChange={handleChange} style={inputStyle}>
           <option value="Cardiff – Cathays">Cardiff – Cathays</option>
         </select>
       </div>
 
-      {/* Submit */}
-      <button type="submit" style={{ ...inputStyle, backgroundColor: '#007bff', color: '#fff', fontWeight: 'bold', marginTop: '0.5rem', width: '250px', cursor: 'pointer' }}>
+      {/* submit */}
+      <button
+        type="submit"
+        style={{
+          ...inputStyle,
+          backgroundColor: '#007bff',
+          color: '#fff',
+          fontWeight: 'bold',
+          marginTop: '0.5rem',
+          width: FIELD_WIDTH,
+          cursor: 'pointer'
+        }}
+      >
         Create Order
       </button>
     </form>

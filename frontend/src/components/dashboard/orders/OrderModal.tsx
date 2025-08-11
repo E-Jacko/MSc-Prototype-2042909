@@ -1,15 +1,36 @@
+// modal with esc/backdrop close and emoji buttons
+// txid is clickable and opens on whatsonchain
+
+import { useEffect, useCallback } from 'react'
 import type { UIOrder } from './OrderItem'
 
 type Props = { order: UIOrder; onClose: () => void; onCommit: (o: UIOrder) => void }
 
+// shared price text
+function priceText(o: UIOrder): string {
+  return o.currency === 'SATS' ? `${o.price} sats/kWh` : `£${o.price}/kWh`
+}
+
 function OrderModal({ order, onClose, onCommit }: Props) {
-  const priceText = order.currency === 'SATS' ? `sats${order.price}/kWh` : `£${order.price}/kWh`
-  const shortKey = order.creatorKey
-    ? `${order.creatorKey.slice(0, 6)}…${order.creatorKey.slice(-6)}`
-    : '—'
+  // esc to close
+  const esc = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') onClose()
+  }, [onClose])
+
+  useEffect(() => {
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [esc])
+
+  // stop click bubbling
+  const stop = (e: React.MouseEvent) => e.stopPropagation()
+
+  // build woc link (mainnet)
+  const wocHref = `https://whatsonchain.com/tx/${order.txid}`
 
   return (
     <div
+      onClick={onClose}
       style={{
         position: 'fixed',
         inset: 0,
@@ -20,6 +41,7 @@ function OrderModal({ order, onClose, onCommit }: Props) {
       }}
     >
       <div
+        onClick={stop}
         style={{
           background: '#fff',
           color: '#000',
@@ -34,15 +56,23 @@ function OrderModal({ order, onClose, onCommit }: Props) {
         </h3>
 
         <div style={{ marginTop: 16, display: 'grid', rowGap: 6 }}>
-          <p><strong>Price:</strong> {priceText}</p>
+          <p><strong>Price:</strong> {priceText(order)}</p>
           <p><strong>Expires:</strong> {new Date(order.expiryISO).toLocaleString()}</p>
           <p><strong>Overlay:</strong> {order.overlayLabel}</p>
           <p><strong>Created:</strong> {new Date(order.createdISO).toLocaleString()}</p>
           <p><strong>Topic:</strong> {order.topic}</p>
-          <p><strong>Creator Key:</strong> {shortKey}</p>
-          <p><strong>Parent:</strong> {order.parent ?? 'null'}</p>
-          <p style={{ wordBreak: 'break-all', opacity: 0.8 }}>
-            <strong>TXID:</strong> {order.txid}
+          <p style={{ wordBreak: 'break-all' }}><strong>Creator Key:</strong> {order.creatorKey || 'unknown'}</p>
+          <p style={{ wordBreak: 'break-all', opacity: 0.9 }}>
+            <strong>TXID:</strong>{' '}
+            <a
+              href={wocHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="open on whatsonchain.com"
+              style={{ color: '#0b69ff', textDecoration: 'underline', wordBreak: 'break-all' }}
+            >
+              {order.txid}
+            </a>
           </p>
         </div>
 

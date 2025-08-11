@@ -1,3 +1,5 @@
+// simple list of order tiles
+
 import OrderItem, { type UIOrder } from './OrderItem'
 
 type Props = { orders: UIOrder[]; onSelect: (o: UIOrder) => void }

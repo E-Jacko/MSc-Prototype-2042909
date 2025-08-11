@@ -1,29 +1,54 @@
-// Generic transaction creator (concise).
-// - Converts UI label -> topic
-// - Adds actor, createdAt, expiresAt, and default parent='null' if empty
-// - Encodes ALL fields in the single shared order
-// - Builds a PushDrop locking script using protocolID [0, 'energy']
-// - Returns an unsigned tx with one PushDrop output (1 sat)
+// generic transaction creator for all energy messages
+// gets signer pubkey from mnd via walletclient and embeds it as actor
+// returns { unsigned, creatorKey }
 
 import { WalletClient, Transaction, PushDrop } from '@bsv/sdk'
-import { OVERLAY_MAP } from './types'
-import type { TxForm } from './types' // type-only import because verbatimModuleSyntax is on
+import { OVERLAY_MAP, FIELD_ORDER, type TxForm } from './types'
 import { normalizeLocalDateTime, toPushDropFieldsOrdered } from './utils'
 
-// Protocol tuple is required by the SDK: [SecurityLevel, protocolString]
-const PROTOCOL_ID: [0, string] = [0, 'energy'] // simple namespace tag
+// simple namespace tag for pushdrop
+const PROTOCOL_ID: [0, string] = [0, 'energy']
 
-export async function createTx(form: TxForm, actorIdentityKey: string): Promise<Transaction> {
-  // Resolve topic from UI label
+export type CreateTxResult = {
+  unsigned: Transaction
+  creatorKey: string
+}
+
+// try a few api shapes to get the pubkey hex
+async function getCreatorKeyHex(wallet: any): Promise<string> {
+  // preferred: keyID alias on modern sdk/mnd
+  try {
+    const r = await wallet.getPublicKey?.({ keyID: 'default', counterparty: 'self', forSelf: true })
+    if (r?.publicKey) return String(r.publicKey)
+  } catch {}
+  // alt: identityKey alias as string (some mnd notes use this)
+  try {
+    const r = await wallet.getPublicKey?.({ identityKey: 'default' })
+    if (r?.publicKey) return String(r.publicKey)
+  } catch {}
+  // alt: exportPublicKey variant on older builds
+  try {
+    const r = await wallet.exportPublicKey?.({ keyId: 'default' })
+    if (r?.hex) return String(r.hex)
+  } catch {}
+  return ''
+}
+
+export async function createTx(form: TxForm): Promise<CreateTxResult> {
+  // resolve overlay label -> topic
   const topic = OVERLAY_MAP[form.overlay]?.topic
-  if (!topic) throw new Error(`Unknown overlay: ${form.overlay}`)
+  if (!topic) throw new Error(`unknown overlay: ${form.overlay}`)
 
-  // Bring all fields into a single, uniform object keyed by FIELD_ORDER
-  const payload: Record<string, string | number> = {
-    type: form.type,                 // 'offer' | 'demand' | 'commitment' | 'contract' | 'proof'
-    topic,                           // embed topic (not the human label)
-    actor: actorIdentityKey,         // identity public key (hex)
-    parent: form.parent ?? 'null',   // orders default to 'null'
+  // talk to mnd via walletclient
+  const wallet = new WalletClient('auto', 'localhost')
+  const creatorKey = await getCreatorKeyHex(wallet)
+
+  // shape payload in our shared field order
+  const payload: Record<(typeof FIELD_ORDER)[number], string | number> = {
+    type: form.type,
+    topic,
+    actor: creatorKey,
+    parent: form.parent ?? 'null',
     createdAt: new Date().toISOString(),
     expiresAt: normalizeLocalDateTime(form.expiryDate),
     quantity: form.quantity,
@@ -31,24 +56,23 @@ export async function createTx(form: TxForm, actorIdentityKey: string): Promise<
     currency: form.currency
   }
 
-  // Build PushDrop locking script (also appends a signature as the last field)
-  const wallet = new WalletClient('auto', 'localhost')
-  const pushdrop = new PushDrop(wallet, 'localhost')
-  const pdFields = toPushDropFieldsOrdered(payload)
-  const lockingScript = await pushdrop.lock(
-    pdFields,
+  // build pushdrop locking script (includes signature)
+  const pd = new PushDrop(wallet, 'localhost')
+  const fields = toPushDropFieldsOrdered(payload)
+  const lockingScript = await pd.lock(
+    fields,
     PROTOCOL_ID,
-    'default',   // keyID
-    'self',      // counterparty
-    false,       // forSelf
-    true,        // include signature
-    'before'     // lock (pubkey+CHECKSIG) before data
+    'default',   // key alias in mnd
+    'self',
+    false,
+    true,
+    'before'
   )
 
-  // Assemble a bare unsigned tx; fee, inputs & change will be handled later.
+  // make unsigned tx with a single 1-sat output
   const tx = new Transaction()
   tx.addOutput({ satoshis: 1, lockingScript })
-  // keep topic & type in metadata so submitTx can route without decoding
   tx.updateMetadata({ topic, type: form.type })
-  return tx
+
+  return { unsigned: tx, creatorKey }
 }

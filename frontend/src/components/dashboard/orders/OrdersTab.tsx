@@ -1,7 +1,6 @@
-// OrdersTab.tsx
-// Minimal + robust: works whether createTx returns { unsigned } or a Transaction directly.
+// orders tab with filters, sorting, and safer decoding
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { PushDrop, Transaction, Utils } from '@bsv/sdk'
 
 import OrderList from './OrderList'
@@ -9,91 +8,58 @@ import OrderModal from './OrderModal'
 import type { UIOrder } from './OrderItem'
 import CreateOrderForm, { type OrderFormData as CreateFormData } from './CreateOrderForm'
 
-// ✅ Your tx builders export *named* functions
+// tx builders
 import { createTx } from '../../../transactions/createTx'
 import { submitTx } from '../../../transactions/submitTx'
 
 const OVERLAY_API =
   (import.meta as any)?.env?.VITE_OVERLAY_API ?? 'http://localhost:8080'
 
-// Map overlay topic → label shown in UI
+// map overlay topic -> label
 function topicToOverlayLabel(topic: string): string {
   if (topic === 'tm_cathays') return 'Cardiff – Cathays'
   return 'Cardiff – Cathays'
 }
 
-// Decode a single output from an overlay lookup row into a UIOrder.
+// small safe number parser
+function num(n: unknown, d = 0): number {
+  const v = typeof n === 'number' ? n : Number(n)
+  return Number.isFinite(v) ? v : d
+}
+
+// decode beef row into ui shape
 function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIOrder | null {
   try {
     const tx = Transaction.fromBEEF(row.beef)
     const out = tx.outputs[row.outputIndex ?? 0]
-
     const { fields } = PushDrop.decode(out.lockingScript)
     const text = fields.map((f) => Utils.toUTF8(f))
 
-    // helpers
-    const findTopic = () => text.find(t => /^tm_/.test(t)) ?? ''
-    const findType = () => {
-      const t = text.find(t => t === 'offer' || t === 'demand')
-      return (t as UIOrder['type']) ?? undefined
-    }
-    const findCurrency = () => (text.find(t => t === 'GBP' || t === 'SATS') as 'GBP' | 'SATS') ?? 'GBP'
-    const findISO = () => text.filter(t => /\d{4}-\d{2}-\d{2}T/.test(t))
-    const findHexKey = () => {
-      const hexish = text.filter(t => /^[0-9a-fA-F]{66,}$/.test(t))
-      return hexish.sort((a, b) => b.length - a.length)[0] ?? ''
-    }
-    const findNums = () =>
-      text.map((t) => Number(t)).filter((n) => Number.isFinite(n)) as number[]
-
-    // Attempt "strict" layout
-    let type = text[0] as UIOrder['type']
-    let topic = text[1]
-    let quantity = Number(text[2])
-    let price = Number(text[3])
-    let currency = (text[4] as 'GBP' | 'SATS') ?? 'GBP'
-    let expiryISO = text[5]
-    let createdISO = text[6]
-    let parent = text[7]
-    let creatorKey = text[8]
-
-    const looksStrict =
-      (type === 'offer' || type === 'demand') &&
-      /^tm_/.test(topic ?? '') &&
-      (currency === 'GBP' || currency === 'SATS') &&
-      /\d{4}-\d{2}-\d{2}T/.test(expiryISO ?? '')
-
-    if (!looksStrict) {
-      // Fallback to loose detection for older txs
-      type = findType() ?? 'offer'
-      topic = findTopic()
-      currency = findCurrency()
-
-      const isos = findISO()
-      expiryISO = isos[0] ?? new Date(Date.now() + 60 * 60 * 1000).toISOString()
-      createdISO = isos[1] ?? new Date().toISOString()
-
-      creatorKey = findHexKey()
-      parent = text.find(t => t === 'null' || /^[0-9a-fA-F]{64}$/.test(t)) ?? 'null'
-
-      const nums = findNums()
-      quantity = Number.isFinite(nums[0]) ? nums[0] : 0
-      price = Number.isFinite(nums[1]) ? nums[1] : 0
-    }
+    // assume shared order layout
+    // [type, topic, actor, parent, createdAt, expiresAt, quantity, price, currency]
+    const type = text[0] as UIOrder['type']
+    const topic = text[1] || ''
+    const actor = text[2] || ''
+    const parent = text[3] || 'null'
+    const createdISO = text[4] || new Date().toISOString()
+    const expiryISO = text[5] || new Date(Date.now() + 3600_000).toISOString()
+    const quantity = num(text[6])
+    const price = num(text[7])
+    const currency = (text[8] === 'SATS' ? 'SATS' : 'GBP') as 'GBP' | 'SATS'
 
     if (!(type === 'offer' || type === 'demand')) return null
 
     return {
       txid: tx.id('hex'),
       type,
-      quantity: Number.isFinite(quantity) ? quantity : 0,
-      price: Number.isFinite(price) ? price : 0,
+      quantity,
+      price,
       currency,
       expiryISO,
       overlayLabel: topicToOverlayLabel(topic),
       topic,
       createdISO,
-      creatorKey,
+      creatorKey: actor,
       parent: parent === 'null' ? null : parent
     }
   } catch {
@@ -102,29 +68,32 @@ function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIO
 }
 
 export default function OrdersTab() {
+  // raw orders from overlay
   const [orders, setOrders] = useState<UIOrder[]>([])
   const [selected, setSelected] = useState<UIOrder | null>(null)
   const [loading, setLoading] = useState(false)
   const [lastCount, setLastCount] = useState(0)
 
+  // filters and sort state
+  const [typeFilter, setTypeFilter] = useState<'all' | 'offer' | 'demand'>('all')
+  const [overlayFilter, setOverlayFilter] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<'expiry' | 'created'>('expiry')
+
+  // fetch from overlay-express
   async function loadFromOverlay() {
     try {
       setLoading(true)
       const res = await fetch(`${OVERLAY_API}/lookup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ service: 'ls_cathays', query: { limit: 25 } })
+        body: JSON.stringify({ service: 'ls_cathays', query: { limit: 50 } })
       })
       const body = await res.json()
-      const list = Array.isArray(body?.outputs) ? body.outputs : []
+      const list: any[] = Array.isArray(body?.outputs) ? body.outputs : []
 
       const decoded: UIOrder[] = list
-        .map((o: any) => decodeOrderFromBEEF({ beef: o.beef, outputIndex: o.outputIndex ?? 0 }))
+        .map((o) => decodeOrderFromBEEF({ beef: o.beef, outputIndex: o.outputIndex ?? 0 }))
         .filter((x: UIOrder | null): x is UIOrder => Boolean(x))
-
-      decoded.sort(
-        (a, b) => (new Date(b.createdISO).getTime() || 0) - (new Date(a.createdISO).getTime() || 0)
-      )
 
       setOrders(decoded)
       setLastCount(decoded.length)
@@ -135,69 +104,87 @@ export default function OrdersTab() {
     }
   }
 
-  useEffect(() => {
-    void loadFromOverlay()
-  }, [])
+  // initial load
+  useEffect(() => { void loadFromOverlay() }, [])
 
+  // derive overlay options from current data
+  const overlayOptions = useMemo(() => {
+    const set = new Set<string>()
+    orders.forEach(o => set.add(o.overlayLabel))
+    return ['all', ...Array.from(set)]
+  }, [orders])
+
+  // apply filters and sort
+  const visible = useMemo(() => {
+    let list = orders.slice()
+
+    if (typeFilter !== 'all') list = list.filter(o => o.type === typeFilter)
+    if (overlayFilter !== 'all') list = list.filter(o => o.overlayLabel === overlayFilter)
+
+    if (sortBy === 'expiry') {
+      list.sort((a, b) => new Date(a.expiryISO).getTime() - new Date(b.expiryISO).getTime())
+    } else {
+      list.sort((a, b) => new Date(b.createdISO).getTime() - new Date(a.createdISO).getTime())
+    }
+    return list
+  }, [orders, typeFilter, overlayFilter, sortBy])
+
+  // handle create flow
   const handleCreateOrder = async (data: CreateFormData) => {
     try {
-      // 🔧 Be lenient about the return shape of createTx
-      // Your current createTx expects 2 args; pass a benign second arg.
-      const built: any = await createTx(data as any, '' as any)
-      const unsigned: Transaction = (built?.unsigned ?? built) as Transaction
+      // build generic pushdrop tx and keep the creator key
+      const built = await createTx({
+        type: data.type,
+        quantity: data.quantity,
+        price: data.price,
+        currency: data.currency,
+        expiryDate: data.expiryDate,
+        overlay: data.overlay
+      })
 
-      // Broadcast with your existing submitter
-      const { txid } = await submitTx(unsigned as any)
+      const unsigned: Transaction = built.unsigned
+      const creatorKey = built.creatorKey
 
-      // Optimistic UI using whatever the form supplies
-      const expiryISO =
-        (data as any).expiryISO ??
-        (data as any).expiry ??
-        (data as any).expiryDate ??
-        new Date(Date.now() + 60 * 60 * 1000).toISOString()
-      const overlayLabel =
-        (data as any).overlayLabel ?? (data as any).overlay ?? topicToOverlayLabel('tm_cathays')
+      // sign, serialize, and post to overlay
+      const { txid } = await submitTx(unsigned)
 
+      // optimistic entry (replaced after reload)
       const optimistic: UIOrder = {
         txid,
-        type: (data as any).type ?? 'offer',
-        quantity: Number((data as any).quantity ?? 0),
-        price: Number((data as any).price ?? 0),
-        currency: ((data as any).currency ?? 'GBP') as 'GBP' | 'SATS',
-        expiryISO,
-        overlayLabel,
+        type: data.type,
+        quantity: Number(data.quantity),
+        price: Number(data.price),
+        currency: data.currency,
+        expiryISO: data.expiryDate ? `${data.expiryDate}:00Z` : new Date(Date.now() + 3600_000).toISOString(),
+        overlayLabel: data.overlay,
         topic: 'tm_cathays',
         createdISO: new Date().toISOString(),
-        creatorKey: '',
+        creatorKey: creatorKey || '',
         parent: null
       }
 
       setOrders(prev => [optimistic, ...prev])
-
-      // Replace with canonical from overlay
       await loadFromOverlay()
     } catch (e) {
       console.error('[OrdersTab] create/submit failed', e)
     }
   }
 
+  // commit placeholder
   const handleCommit = (o: UIOrder) => {
-    console.log('Commit to order:', o)
+    console.log('commit to order:', o)
     setSelected(null)
   }
 
   return (
     <div style={{ display: 'flex', gap: '4rem', alignItems: 'flex-start', paddingTop: '2rem' }}>
-      {/* Left: form */}
+      {/* left: create form */}
       <div style={{ flex: 1 }}>
         <h2>Create Order</h2>
         <CreateOrderForm onSubmit={handleCreateOrder} />
-        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
-          Last: loaded {lastCount} order(s)
-        </div>
       </div>
 
-      {/* Right: list + refresh */}
+      {/* right: list, filters, and refresh */}
       <div style={{ flex: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <h2 style={{ margin: 0, flex: 1 }}>Active Orders</h2>
@@ -206,8 +193,41 @@ export default function OrdersTab() {
           </button>
         </div>
 
+        {/* status line right-aligned */}
+        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7, textAlign: 'right' }}>
+          Last: loaded {lastCount} order(s)
+        </div>
+
+        {/* filter + sort controls */}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>Type</span>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as any)}>
+              <option value="all">All</option>
+              <option value="offer">Offer</option>
+              <option value="demand">Demand</option>
+            </select>
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>Overlay</span>
+            <select value={overlayFilter} onChange={(e) => setOverlayFilter(e.target.value)}>
+              {overlayOptions.map(o => <option key={o} value={o}>{o === 'all' ? 'All' : o}</option>)}
+            </select>
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>Sort</span>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+              <option value="expiry">Expiry soonest first</option>
+              <option value="created">Created newest first</option>
+            </select>
+          </label>
+        </div>
+
+        {/* list */}
         <div style={{ marginTop: 16 }}>
-          <OrderList orders={orders} onSelect={setSelected} />
+          <OrderList orders={visible} onSelect={setSelected} />
         </div>
       </div>
 

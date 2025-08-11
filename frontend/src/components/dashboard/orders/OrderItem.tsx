@@ -1,4 +1,5 @@
-// Simple card for one order. No changes needed elsewhere.
+// card for one decoded order
+
 export type UIOrder = {
   txid: string
   type: 'offer' | 'demand' | 'commitment' | 'contract' | 'proof'
@@ -15,11 +16,13 @@ export type UIOrder = {
 
 type Props = { order: UIOrder; onClick: () => void }
 
-function OrderItem({ order, onClick }: Props) {
-  const formatted = order.currency === 'SATS'
-    ? `sats${order.price}/kWh`
-    : `£${order.price}/kWh`
+// local price formatter so card and modal stay in sync
+function priceText(o: UIOrder): string {
+  return o.currency === 'SATS' ? `${o.price} sats/kWh` : `£${o.price}/kWh`
+}
 
+function OrderItem({ order, onClick }: Props) {
+  // simple tile
   return (
     <div
       onClick={onClick}
@@ -32,7 +35,7 @@ function OrderItem({ order, onClick }: Props) {
         color: '#f1f1f1'
       }}
     >
-      <strong>{order.type.toUpperCase()} – {order.quantity} kWh @ {formatted}</strong>
+      <strong>{order.type.toUpperCase()} – {order.quantity} kWh @ {priceText(order)}</strong>
       <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', opacity: 0.85 }}>
         Expires: {new Date(order.expiryISO).toLocaleString()} | Overlay: {order.overlayLabel}
       </p>
