@@ -1,4 +1,4 @@
-// orders tab with filters, sorting, and safer decoding
+// orders tab with filters, sorting, decoding; dev flag allows self-commit so you can test with one funded profile
 
 import { useEffect, useMemo, useState } from 'react'
 import { PushDrop, Transaction, Utils } from '@bsv/sdk'
@@ -8,9 +8,16 @@ import OrderModal from './OrderModal'
 import type { UIOrder } from './OrderItem'
 import CreateOrderForm, { type OrderFormData as CreateFormData } from './CreateOrderForm'
 
-// tx builders
+// tx helpers
 import { createTx } from '../../../transactions/createTx'
 import { submitTx } from '../../../transactions/submitTx'
+import { isoToLocalMinute } from '../../../transactions/utils'
+
+// identity context (already fetched at login)
+import { useIdentity } from '../../../context/IdentityContext'
+
+// dev toggle: set to false again once you can fund a second profile
+const ALLOW_SELF_COMMIT_FOR_DEV = true
 
 const OVERLAY_API =
   (import.meta as any)?.env?.VITE_OVERLAY_API ?? 'http://localhost:8080'
@@ -27,7 +34,7 @@ function num(n: unknown, d = 0): number {
   return Number.isFinite(v) ? v : d
 }
 
-// decode beef row into ui shape
+// decode beef row into ui shape (offers and demands only for this list)
 function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIOrder | null {
   try {
     const tx = Transaction.fromBEEF(row.beef)
@@ -35,8 +42,7 @@ function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIO
     const { fields } = PushDrop.decode(out.lockingScript)
     const text = fields.map((f) => Utils.toUTF8(f))
 
-    // assume shared order layout
-    // [type, topic, actor, parent, createdAt, expiresAt, quantity, price, currency]
+    // expect shared 9-field layout
     const type = text[0] as UIOrder['type']
     const topic = text[1] || ''
     const actor = text[2] || ''
@@ -68,6 +74,9 @@ function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIO
 }
 
 export default function OrdersTab() {
+  // identity key available if you want to log who is acting
+  const { identityKey } = useIdentity()
+
   // raw orders from overlay
   const [orders, setOrders] = useState<UIOrder[]>([])
   const [selected, setSelected] = useState<UIOrder | null>(null)
@@ -97,6 +106,7 @@ export default function OrdersTab() {
 
       setOrders(decoded)
       setLastCount(decoded.length)
+      console.debug('[OrdersTab] loaded orders', decoded.length)
     } catch (e) {
       console.error('[OrdersTab] lookup failed', e)
     } finally {
@@ -132,7 +142,7 @@ export default function OrdersTab() {
   // handle create flow
   const handleCreateOrder = async (data: CreateFormData) => {
     try {
-      // build generic pushdrop tx and keep the creator key
+      console.debug('[OrdersTab] creating order', data)
       const built = await createTx({
         type: data.type,
         quantity: data.quantity,
@@ -145,10 +155,9 @@ export default function OrdersTab() {
       const unsigned: Transaction = built.unsigned
       const creatorKey = built.creatorKey
 
-      // sign, serialize, and post to overlay
       const { txid } = await submitTx(unsigned)
+      console.log('[OrdersTab] order broadcasted', txid)
 
-      // optimistic entry (replaced after reload)
       const optimistic: UIOrder = {
         txid,
         type: data.type,
@@ -170,10 +179,49 @@ export default function OrdersTab() {
     }
   }
 
-  // commit placeholder
-  const handleCommit = (o: UIOrder) => {
-    console.log('commit to order:', o)
-    setSelected(null)
+  // build and submit a commitment using the existing createTx + submitTx
+  const handleCommit = async (o: UIOrder) => {
+    try {
+      // optional self-commit guard controlled by dev flag
+      if (!ALLOW_SELF_COMMIT_FOR_DEV && identityKey && identityKey === o.creatorKey) {
+        alert('you cannot commit to your own order')
+        return
+      }
+
+      // log what we will commit to
+      console.debug('[OrdersTab] committing to order', { txid: o.txid, qty: o.quantity, price: o.price, currency: o.currency })
+
+      // create a commitment by reusing the generic createTx flow
+      const built = await createTx({
+        type: 'commitment',
+        quantity: o.quantity,
+        price: o.price,
+        currency: o.currency,
+        expiryDate: isoToLocalMinute(o.expiryISO),
+        overlay: o.overlayLabel,
+        parent: o.txid
+      })
+
+      const { unsigned } = built
+      console.debug('[OrdersTab] commitment built via createTx')
+
+      // sign + broadcast via the existing submitter
+      const { txid } = await submitTx(unsigned)
+      console.log('[OrdersTab] commitment broadcasted', txid)
+
+      // close modal and refresh view
+      setSelected(null)
+      await loadFromOverlay()
+    } catch (e: any) {
+      console.error('[OrdersTab] commit failed', e)
+      const msg = String(e?.message || e)
+
+      if (msg.includes('409')) {
+        alert('this order has already been taken')
+        return
+      }
+      alert('commit failed. check console for details')
+    }
   }
 
   return (
