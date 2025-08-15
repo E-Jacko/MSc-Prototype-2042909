@@ -1,3 +1,4 @@
+// frontend/src/components/dashboard/history/HistoryItem.tsx
 // square card for a node; highlights blue if created by me
 
 import React from 'react'
@@ -34,6 +35,7 @@ export default function HistoryItem({ label, doc, myKey, onClick }: Props) {
     boxShadow: mine ? '0 0 0 3px rgba(30,144,255,0.15)' : 'none'
   }
 
+  // Pending look unchanged
   if (!doc) {
     return (
       <div style={box} title={`${label} (pending)`}>
@@ -44,16 +46,18 @@ export default function HistoryItem({ label, doc, myKey, onClick }: Props) {
   }
 
   const price = priceText(doc)
+  const header =
+    label.toLowerCase() === 'order'
+      ? (doc.kind.charAt(0).toUpperCase() + doc.kind.slice(1)) // Offer / Demand
+      : label
 
   return (
     <div style={box} onClick={() => clickable && onClick!(doc)}>
-      <div style={{ fontWeight: 700 }}>{label}</div>
+      <div style={{ fontWeight: 700 }}>{header}</div>
       <div style={{ fontSize: 12, lineHeight: 1.35, marginTop: 6 }}>
-        <div><strong>Type:</strong> {doc.kind}</div>
         {doc.quantity != null && <div><strong>Qty:</strong> {doc.quantity} kWh</div>}
         {price && <div><strong>Price:</strong> {price}</div>}
         {doc.expiryISO && <div><strong>Expiry:</strong> {new Date(doc.expiryISO).toLocaleString()}</div>}
-        <div><strong>Created:</strong> {new Date(doc.createdISO).toLocaleString()}</div>
       </div>
     </div>
   )

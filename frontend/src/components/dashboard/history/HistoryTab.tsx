@@ -1,3 +1,4 @@
+// frontend/src/components/dashboard/history/HistoryTab.tsx
 // single-column list of flows; filter + sort + refresh.
 // any tx created by the connected identity is highlighted blue.
 
@@ -47,34 +48,39 @@ export default function HistoryTab() {
 
   return (
     <div style={{ paddingTop: '2rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <h2 style={{ margin: 0, flex: 1 }}>{title}</h2>
+      {/* Header: centered title, then centered controls, then status below */}
+      <div style={{ display: 'grid', rowGap: 8 }}>
+        <h2 style={{ margin: 0, textAlign: 'center' }}>{title}</h2>
 
-        {/* filter */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>Filter</span>
-          <select value={filter} onChange={(e) => setFilter(e.target.value as FilterMode)}>
-            <option value="all">All flows</option>
-            <option value="my-orders">My orders</option>
-            <option value="my-commitments">My commitments</option>
-          </select>
-        </label>
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12 }}>
+          {/* filter */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>Filter</span>
+            <select value={filter} onChange={(e) => setFilter(e.target.value as FilterMode)}>
+              <option value="all">All flows</option>
+              <option value="my-orders">My orders</option>
+              <option value="my-commitments">My commitments</option>
+            </select>
+          </label>
 
-        {/* sort */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>Sort</span>
-          <select value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>
-            <option value="recent">Most recent</option>
-            <option value="oldest">Oldest</option>
-          </select>
-        </label>
+          {/* sort */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>Sort</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>
+              <option value="recent">Most recent</option>
+              <option value="oldest">Oldest</option>
+            </select>
+          </label>
 
-        <button onClick={() => void load()} disabled={loading}>
-          {loading ? 'Refreshing…' : 'Refresh'}
-        </button>
+          <button onClick={() => void load()} disabled={loading}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+
+        <div style={{ textAlign: 'center', fontSize: 12, opacity: 0.7 }}>
+          {statusText}
+        </div>
       </div>
-
-      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>{statusText}</div>
 
       {/* flows */}
       <div style={{ marginTop: 16, display: 'grid', rowGap: 12 }}>

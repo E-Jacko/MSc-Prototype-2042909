@@ -34,10 +34,17 @@ export default function HistoryModal({ doc, onClose }: Props) {
           {doc.quantity != null && <p><strong>Quantity:</strong> {doc.quantity} kWh</p>}
           {priceTxt && <p><strong>Price:</strong> {priceTxt}</p>}
           {doc.parentTxid && (
-            <p><strong>Parent:</strong> <span style={{ wordBreak: 'break-all' }}>{doc.parentTxid}</span></p>
+            <p><strong>Parent:</strong>{' '}
+              <a href={woc(doc.parentTxid)} target="_blank" rel="noreferrer" style={{ color: '#0b69ff', wordBreak: 'break-all' }}>
+                {doc.parentTxid}
+              </a>
+            </p>
           )}
           <p style={{ wordBreak: 'break-all' }}>
-            <strong>TXID:</strong> <a href={woc(doc.txid)} target="_blank" rel="noreferrer" style={{ color: '#0b69ff' }}>{doc.txid}</a>
+            <strong>TXID:</strong>{' '}
+            <a href={woc(doc.txid)} target="_blank" rel="noreferrer" style={{ color: '#0b69ff' }}>
+              {doc.txid}
+            </a>
           </p>
         </div>
 
