@@ -7,6 +7,26 @@ import HistoryModal from './HistoryModal'
 
 type Props = { row: FlowRow; myKey: string | null }
 
+// strict equality helper that treats null/undefined as non-matching
+const eq = <T,>(a: T | null | undefined, b: T | null | undefined) =>
+  a !== null && a !== undefined && b !== null && b !== undefined && a === b
+
+// decide whether an order and a commitment match at the data level
+function orderAndCommitmentMatch(order?: TxDoc, commitment?: TxDoc): boolean {
+  if (!order || !commitment) return false
+  // topic should match
+  if (!eq(order.topic, commitment.topic)) return false
+  // currency, price, quantity must match
+  if (!eq(order.currency, commitment.currency)) return false
+  if (!eq(order.price, commitment.price)) return false
+  if (!eq(order.quantity, commitment.quantity)) return false
+  // if both have an expiry, require equality (if one is missing we don't block)
+  if (order.expiryISO && commitment.expiryISO) {
+    if (new Date(order.expiryISO).getTime() !== new Date(commitment.expiryISO).getTime()) return false
+  }
+  return true
+}
+
 function priceTxt(doc: TxDoc | undefined): string | undefined {
   if (!doc || doc.price == null || doc.currency == null) return undefined
   return doc.currency === 'SATS' ? `${doc.price} sats/kWh` : `£${doc.price}/kWh`
@@ -24,7 +44,7 @@ function Tile({ doc, label, myKey, onOpen }: {
   // Base tile style – compact vertical spacing for real tiles; keep space-between for pending
   const base: React.CSSProperties = {
     width: 180,
-    minHeight: 110, // a touch more rectangular
+    minHeight: 110,
     borderRadius: 10,
     background: '#333',
     color: '#f1f1f1',
@@ -34,7 +54,7 @@ function Tile({ doc, label, myKey, onOpen }: {
     cursor: hasDoc ? 'pointer' : 'default',
     display: 'flex',
     flexDirection: 'column',
-    ...(hasDoc ? { gap: 6 } : { justifyContent: 'space-between' }) // compact vs. pending layout
+    ...(hasDoc ? { gap: 6 } : { justifyContent: 'space-between' })
   }
 
   // Pending: dashed border, no colored shadow
@@ -69,7 +89,18 @@ function Tile({ doc, label, myKey, onOpen }: {
 export default function HistoryRow({ row, myKey }: Props) {
   const [open, setOpen] = useState<TxDoc | null>(null)
 
+  const matchOK = orderAndCommitmentMatch(row.order, row.commitment)
+
   const arrow: React.CSSProperties = { alignSelf: 'center', opacity: 0.7 }
+  const okArrow: React.CSSProperties = {
+    alignSelf: 'center',
+    color: '#29c467',            // green tick
+    fontWeight: 700
+  }
+
+  // when a modal is open, decide if it’s the commitment and eligible to create a contract
+  const canCreateContract =
+    !!open && !!row.commitment && open.txid === row.commitment.txid && matchOK
 
   return (
     <>
@@ -77,13 +108,25 @@ export default function HistoryRow({ row, myKey }: Props) {
         <Tile label="Order"       doc={row.order}       myKey={myKey} onOpen={() => setOpen(row.order!)} />
         <div style={arrow}>→</div>
         <Tile label="Commitment"  doc={row.commitment}  myKey={myKey} onOpen={() => setOpen(row.commitment!)} />
-        <div style={arrow}>→</div>
+        <div
+          style={matchOK ? okArrow : arrow}
+          title={matchOK ? 'Fields match – ready to contract' : 'Waiting for matching commitment'}
+          aria-label={matchOK ? 'ready to contract' : 'not ready'}
+        >
+          {matchOK ? '✓' : '→'}
+        </div>
         <Tile label="Contract"    doc={row.contract}    myKey={myKey} onOpen={() => setOpen(row.contract!)} />
         <div style={arrow}>→</div>
         <Tile label="Proof"       doc={row.proof}       myKey={myKey} onOpen={() => setOpen(row.proof!)} />
       </div>
 
-      {open && <HistoryModal doc={open} onClose={() => setOpen(null)} />}
+      {open && (
+        <HistoryModal
+          doc={open}
+          onClose={() => setOpen(null)}
+          canCreateContract={canCreateContract}
+        />
+      )}
     </>
   )
 }

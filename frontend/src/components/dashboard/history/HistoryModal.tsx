@@ -4,11 +4,15 @@
 import { useCallback, useEffect } from 'react'
 import type { TxDoc } from './HistoryApi'
 
-type Props = { doc: TxDoc; onClose: () => void }
+type Props = {
+  doc: TxDoc
+  onClose: () => void
+  canCreateContract?: boolean   // only relevant for commitment docs
+}
 
 const woc = (txid: string) => `https://whatsonchain.com/tx/${txid}`
 
-export default function HistoryModal({ doc, onClose }: Props) {
+export default function HistoryModal({ doc, onClose, canCreateContract }: Props) {
   const esc = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
   useEffect(() => { window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc) }, [esc])
 
@@ -56,11 +60,27 @@ export default function HistoryModal({ doc, onClose }: Props) {
           </p>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
-          <button onClick={onClose} style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}>
-            Close
-          </button>
-        </div>
+        {/* Footer buttons */}
+        {doc.kind === 'commitment' && canCreateContract ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
+            <button
+              onClick={() => {}}
+              style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}
+              title="Create a contract from this matching order & commitment"
+            >
+              📝 Create Contract
+            </button>
+            <button onClick={onClose} style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}>
+              ❌ Close
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+            <button onClick={onClose} style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}>
+              Close
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
