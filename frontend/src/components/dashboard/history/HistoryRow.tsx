@@ -18,26 +18,29 @@ function Tile({ doc, label, myKey, onOpen }: {
   myKey: string | null
   onOpen: () => void
 }) {
-  // tile style
+  const hasDoc = !!doc
+  const isMine = !!doc && !!myKey && doc.actorKey === myKey
+
+  // Base tile style – compact vertical spacing for real tiles; keep space-between for pending
   const base: React.CSSProperties = {
     width: 180,
-    height: 120,
+    minHeight: 110, // a touch more rectangular
     borderRadius: 10,
     background: '#333',
     color: '#f1f1f1',
-    border: `2px solid ${doc && myKey && doc.actorKey === myKey ? '#0b69ff' : '#111'}`,
-    boxShadow: '0 2px 10px rgba(0,0,0,0.25)',
+    border: `2px solid ${hasDoc && isMine ? '#0b69ff' : '#111'}`,
+    boxShadow: hasDoc ? '0 8px 22px rgba(11,105,255,0.25)' : '0 2px 10px rgba(0,0,0,0.25)',
     padding: 10,
-    cursor: doc ? 'pointer' : 'default',
+    cursor: hasDoc ? 'pointer' : 'default',
     display: 'flex',
     flexDirection: 'column',
-    justifyContent: 'space-between'
+    ...(hasDoc ? { gap: 6 } : { justifyContent: 'space-between' }) // compact vs. pending layout
   }
 
-  // Pending: keep as-is (title + "Pending…")
+  // Pending: dashed border, no colored shadow
   if (!doc) {
     return (
-      <div style={{ ...base, opacity: 0.65, borderStyle: 'dashed', borderColor: '#555' }}>
+      <div style={{ ...base, opacity: 0.65, borderStyle: 'dashed', borderColor: '#555', boxShadow: 'none' }}>
         <div style={{ fontWeight: 700 }}>{label}</div>
         <div style={{ fontSize: 12, opacity: 0.8 }}>Pending…</div>
       </div>
@@ -59,7 +62,6 @@ function Tile({ doc, label, myKey, onOpen }: {
         {price && <div><strong>Price:</strong> {price}</div>}
         {doc.expiryISO && <div><strong>Expiry:</strong> {new Date(doc.expiryISO).toLocaleString()}</div>}
       </div>
-      {/* TXID removed per request */}
     </div>
   )
 }

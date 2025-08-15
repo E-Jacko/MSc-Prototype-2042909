@@ -12,6 +12,14 @@ export default function HistoryModal({ doc, onClose }: Props) {
   const esc = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
   useEffect(() => { window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc) }, [esc])
 
+  const title =
+    doc.kind === 'offer' ? 'Offer' :
+    doc.kind === 'demand' ? 'Demand' :
+    doc.kind === 'commitment' ? 'Commitment' :
+    doc.kind === 'contract' ? 'Contract' :
+    doc.kind === 'proof' ? 'Proof' :
+    'Transaction'
+
   const priceTxt =
     doc.currency === 'SATS'
       ? `${doc.price ?? 0} sats/kWh`
@@ -24,7 +32,7 @@ export default function HistoryModal({ doc, onClose }: Props) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'grid', placeItems: 'center', zIndex: 9999 }}>
       <div onClick={stop} style={{ background: '#fff', color: '#000', padding: '1.5rem 2rem', borderRadius: 12, width: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}>
-        <h3 style={{ marginTop: 0, textAlign: 'center' }}>{doc.kind.toUpperCase()}</h3>
+        <h3 style={{ marginTop: 0, textAlign: 'center' }}>{title}</h3>
 
         <div style={{ display: 'grid', rowGap: 6 }}>
           <p><strong>Topic:</strong> {doc.topic || 'unknown'}</p>
