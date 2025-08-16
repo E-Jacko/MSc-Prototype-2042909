@@ -1,5 +1,5 @@
 // frontend/src/components/dashboard/history/HistoryItem.tsx
-// square/rectangular card for a node; highlights blue if created by me
+// rectangular card for a node; blue border/glow only when it's mine
 
 import React from 'react'
 import type { TxDoc } from './HistoryApi'
@@ -32,12 +32,10 @@ export default function HistoryItem({ label, doc, myKey, onClick }: Props) {
     display: 'flex',
     flexDirection: 'column',
     cursor: clickable ? 'pointer' : 'default',
-    // Compact spacing for real tiles; pending keeps space-between
     ...(hasDoc ? { gap: 6 } : { justifyContent: 'space-between' } as React.CSSProperties),
-    // Blue-tinted drop shadow for real tiles; subtle ring for "mine"
-    boxShadow: hasDoc
-      ? `${mine ? '0 0 0 3px rgba(30,144,255,0.2), ' : ''}0 8px 22px rgba(11,105,255,0.25)`
-      : 'none'
+    boxShadow: hasDoc && mine
+      ? '0 0 0 3px rgba(30,144,255,0.2), 0 8px 22px rgba(11,105,255,0.25)'
+      : (hasDoc ? '0 2px 10px rgba(0,0,0,0.25)' : 'none')
   }
 
   if (!doc) {
@@ -62,6 +60,10 @@ export default function HistoryItem({ label, doc, myKey, onClick }: Props) {
         {doc.quantity != null && <div><strong>Qty:</strong> {doc.quantity} kWh</div>}
         {price && <div><strong>Price:</strong> {price}</div>}
         {doc.expiryISO && <div><strong>Expiry:</strong> {new Date(doc.expiryISO).toLocaleString()}</div>}
+        {/* Actor key — shortened + ellipsis, same styling as other fields */}
+        <div style={{ wordBreak: 'break-all' }}>
+          <strong>Actor:</strong> {doc.actorKey.length > 16 ? `${doc.actorKey.slice(0, 12)}…` : doc.actorKey}
+        </div>
       </div>
     </div>
   )

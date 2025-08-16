@@ -14,13 +14,10 @@ const eq = <T,>(a: T | null | undefined, b: T | null | undefined) =>
 // decide whether an order and a commitment match at the data level
 function orderAndCommitmentMatch(order?: TxDoc, commitment?: TxDoc): boolean {
   if (!order || !commitment) return false
-  // topic should match
   if (!eq(order.topic, commitment.topic)) return false
-  // currency, price, quantity must match
   if (!eq(order.currency, commitment.currency)) return false
   if (!eq(order.price, commitment.price)) return false
   if (!eq(order.quantity, commitment.quantity)) return false
-  // if both have an expiry, require equality (if one is missing we don't block)
   if (order.expiryISO && commitment.expiryISO) {
     if (new Date(order.expiryISO).getTime() !== new Date(commitment.expiryISO).getTime()) return false
   }
@@ -41,7 +38,7 @@ function Tile({ doc, label, myKey, onOpen }: {
   const hasDoc = !!doc
   const isMine = !!doc && !!myKey && doc.actorKey === myKey
 
-  // Base tile style – compact vertical spacing for real tiles; keep space-between for pending
+  // Base tile style – blue border & glow only when it's mine
   const base: React.CSSProperties = {
     width: 180,
     minHeight: 110,
@@ -49,7 +46,9 @@ function Tile({ doc, label, myKey, onOpen }: {
     background: '#333',
     color: '#f1f1f1',
     border: `2px solid ${hasDoc && isMine ? '#0b69ff' : '#111'}`,
-    boxShadow: hasDoc ? '0 8px 22px rgba(11,105,255,0.25)' : '0 2px 10px rgba(0,0,0,0.25)',
+    boxShadow: hasDoc && isMine
+      ? '0 8px 22px rgba(11,105,255,0.25)'
+      : (hasDoc ? '0 2px 10px rgba(0,0,0,0.25)' : 'none'),
     padding: 10,
     cursor: hasDoc ? 'pointer' : 'default',
     display: 'flex',
@@ -57,7 +56,6 @@ function Tile({ doc, label, myKey, onOpen }: {
     ...(hasDoc ? { gap: 6 } : { justifyContent: 'space-between' })
   }
 
-  // Pending: dashed border, no colored shadow
   if (!doc) {
     return (
       <div style={{ ...base, opacity: 0.65, borderStyle: 'dashed', borderColor: '#555', boxShadow: 'none' }}>
@@ -81,6 +79,10 @@ function Tile({ doc, label, myKey, onOpen }: {
         {doc.quantity != null && <div><strong>Qty:</strong> {doc.quantity} kWh</div>}
         {price && <div><strong>Price:</strong> {price}</div>}
         {doc.expiryISO && <div><strong>Expiry:</strong> {new Date(doc.expiryISO).toLocaleString()}</div>}
+        {/* Actor key — shortened + ellipsis, same styling as other fields */}
+        <div style={{ wordBreak: 'break-all' }}>
+          <strong>Actor:</strong> {doc.actorKey.length > 16 ? `${doc.actorKey.slice(0, 12)}…` : doc.actorKey}
+        </div>
       </div>
     </div>
   )
@@ -97,8 +99,12 @@ export default function HistoryRow({ row, myKey }: Props) {
     color: '#29c467',            // green tick
     fontWeight: 700
   }
+  const badArrow: React.CSSProperties = {
+    alignSelf: 'center',
+    color: '#ff5252',            // red cross
+    fontWeight: 700
+  }
 
-  // when a modal is open, decide if it’s the commitment and eligible to create a contract
   const canCreateContract =
     !!open && !!row.commitment && open.txid === row.commitment.txid && matchOK
 
@@ -109,11 +115,11 @@ export default function HistoryRow({ row, myKey }: Props) {
         <div style={arrow}>→</div>
         <Tile label="Commitment"  doc={row.commitment}  myKey={myKey} onOpen={() => setOpen(row.commitment!)} />
         <div
-          style={matchOK ? okArrow : arrow}
-          title={matchOK ? 'Fields match – ready to contract' : 'Waiting for matching commitment'}
+          style={matchOK ? okArrow : badArrow}
+          title={matchOK ? 'Fields match – ready to contract' : 'Fields differ – not ready'}
           aria-label={matchOK ? 'ready to contract' : 'not ready'}
         >
-          {matchOK ? '✓' : '→'}
+          {matchOK ? '✓' : '✗'}
         </div>
         <Tile label="Contract"    doc={row.contract}    myKey={myKey} onOpen={() => setOpen(row.contract!)} />
         <div style={arrow}>→</div>
