@@ -1,4 +1,3 @@
-// frontend/src/components/dashboard/history/HistoryApi.ts
 // fetch + shape helpers for the history tab
 // change: expand each head (order/commitment) into its full flow via custom lookups
 

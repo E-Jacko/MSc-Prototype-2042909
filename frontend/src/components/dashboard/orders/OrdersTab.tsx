@@ -225,7 +225,7 @@ export default function OrdersTab() {
   }
 
   return (
-    <div style={{ display: 'flex', gap: '4rem', alignItems: 'flex-start', paddingTop: '2rem' }}>
+    <div style={{ display: 'flex', gap: '4rem', alignItems: 'flex-start', paddingTop: '1rem' }}>
       {/* left: create form */}
       <div style={{ flex: 1 }}>
         <h2>Create Order</h2>
@@ -234,8 +234,8 @@ export default function OrdersTab() {
 
       {/* right: list, filters, and refresh */}
       <div style={{ flex: 2 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h2 style={{ margin: 0, flex: 1 }}>Active Orders</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+          <h2 style={{ margin: 15, flex: 1 }}>Active Orders</h2>
           <button onClick={() => void loadFromOverlay()} disabled={loading} title="Reload from overlay">
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -247,7 +247,7 @@ export default function OrdersTab() {
         </div>
 
         {/* filter + sort controls */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>Type</span>
             <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as any)}>

@@ -1,5 +1,5 @@
-// frontend/src/components/dashboard/history/HistoryModal.tsx
 // simple details modal shown when a tile is clicked
+// now supports an onCreate callback for the "Create Contract" button
 
 import { useCallback, useEffect } from 'react'
 import type { TxDoc } from './HistoryApi'
@@ -8,14 +8,17 @@ type Props = {
   doc: TxDoc
   onClose: () => void
   canCreateContract?: boolean   // only relevant for commitment docs
+  onCreate?: () => void         // called when user clicks Create Contract
 }
 
 const woc = (txid: string) => `https://whatsonchain.com/tx/${txid}`
 
-export default function HistoryModal({ doc, onClose, canCreateContract }: Props) {
+export default function HistoryModal({ doc, onClose, canCreateContract, onCreate }: Props) {
+  // esc to close
   const esc = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
   useEffect(() => { window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc) }, [esc])
 
+  // title based on kind
   const title =
     doc.kind === 'offer' ? 'Offer' :
     doc.kind === 'demand' ? 'Demand' :
@@ -24,6 +27,7 @@ export default function HistoryModal({ doc, onClose, canCreateContract }: Props)
     doc.kind === 'proof' ? 'Proof' :
     'Transaction'
 
+  // friendly price text
   const priceTxt =
     doc.currency === 'SATS'
       ? `${doc.price ?? 0} sats/kWh`
@@ -60,11 +64,11 @@ export default function HistoryModal({ doc, onClose, canCreateContract }: Props)
           </p>
         </div>
 
-        {/* Footer buttons */}
+        {/* footer buttons */}
         {doc.kind === 'commitment' && canCreateContract ? (
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
             <button
-              onClick={() => {}}
+              onClick={() => onCreate?.()}
               style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}
               title="Create a contract from this matching order & commitment"
             >
