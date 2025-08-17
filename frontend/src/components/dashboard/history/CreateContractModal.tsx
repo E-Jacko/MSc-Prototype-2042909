@@ -1,192 +1,159 @@
-// modal to collect contract params only (no tx build here)
-// timeout is set equal to windowEnd; ui field removed
+// create contract modal
+// - compact header
+// - white inputs on dark modal (matching your other modals)
+// - fields: funding mode, window start + length mins, derived window end, meter pubkey
+// - no separate timeout field (timeout == window end for the prototype)
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { TxDoc } from './HistoryApi'
-import { getMeterPubKeyForActor } from '../../../transactions/utils'
 
-type FundingMode = 'dummy' | 'calculated'
+export type FundingMode = 'dummy' | 'calculated'
 
 export type CreateContractValues = {
   fundingMode: FundingMode
-  windowStart: string      // iso
-  windowEnd: string        // iso
-  timeout: string          // iso (equal to windowEnd for now)
+  windowStartISO: string
+  windowEndISO: string
   meterPubKey: string
 }
 
 type Props = {
-  order?: TxDoc
+  order: TxDoc
   commitment: TxDoc
-  buyerKey: string
   onClose: () => void
-  onConfirm: (values: CreateContractValues) => void
+  onConfirm: (values: CreateContractValues) => Promise<void> | void
 }
 
-// build YYYY-MM-DDTHH:MM from a date
-function toLocalMinute(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-// normalize 'YYYY-MM-DDTHH:MM' to iso with seconds + z
-function normalizeLocal(local: string): string {
-  if (!local) return ''
-  const withSeconds = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local) ? `${local}:00` : local
-  return withSeconds.endsWith('Z') ? withSeconds : `${withSeconds}Z`
-}
-
-const labelStyle: React.CSSProperties = {
-  marginBottom: '0.35rem',
-  fontWeight: 500,
-  textAlign: 'center'
-}
-const inputStyle: React.CSSProperties = {
-  padding: '0.6rem',
-  fontSize: '1rem',
-  backgroundColor: '#fff',
-  border: '1px solid #ccc',
-  color: '#000',
-  borderRadius: 8,
+const inputBase: React.CSSProperties = {
   width: '100%',
-  outline: 'none',
-  boxSizing: 'border-box'
+  padding: '10px 12px',
+  borderRadius: 6,
+  border: '1px solid #ccc',
+  background: '#fff',
+  color: '#000',
+  fontSize: 14
 }
-const inputStyleDisabled: React.CSSProperties = { ...inputStyle, backgroundColor: '#eee', color: '#555' }
 
-export default function CreateContractModal({ order, commitment, buyerKey, onClose, onConfirm }: Props) {
-  // prefill times
-  const now = useMemo(() => new Date(), [])
+export default function CreateContractModal({ order, commitment, onClose, onConfirm }: Props) {
+  // reference commitment so ts doesn't warn (reserved for future validation)
+  void commitment
+
+  // initial window start = now rounded to minute
+  const nowISO = useMemo(() => {
+    const d = new Date()
+    d.setSeconds(0, 0)
+    return d.toISOString()
+  }, [])
+
   const [fundingMode, setFundingMode] = useState<FundingMode>('dummy')
-  const [startLocal, setStartLocal] = useState<string>(() => toLocalMinute(now))
-  const [lengthMins, setLengthMins] = useState<number>(60)          // default 1h
-
-  // prefill meter key for dev
-  const [meterPubKey, setMeterPubKey] = useState<string>(() =>
-    getMeterPubKeyForActor(buyerKey || commitment.actorKey)
+  const [windowStartISO, setWindowStartISO] = useState(nowISO)
+  const [lengthMins, setLengthMins] = useState<number>(60)
+  const [meterPubKey, setMeterPubKey] = useState<string>(
+    // dev default meter pubkey (replace later with certificate lookup)
+    '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
   )
 
-  // derived end (and refund timeout = end)
-  const endLocal = useMemo(() => {
-    const d = new Date(startLocal)
-    if (!isNaN(d.getTime())) d.setMinutes(d.getMinutes() + Number(lengthMins || 0))
-    return toLocalMinute(d)
-  }, [startLocal, lengthMins])
+  // derive window end from start + length
+  const windowEndISO = useMemo(() => {
+    const start = new Date(windowStartISO)
+    const end = new Date(start.getTime() + (Number.isFinite(lengthMins) ? lengthMins : 0) * 60_000)
+    return end.toISOString()
+  }, [windowStartISO, lengthMins])
 
-  // validation
-  const startDate = new Date(startLocal)
-  const endDate = new Date(endLocal)
-  const badWindow = isNaN(startDate.getTime()) || isNaN(endDate.getTime()) || endDate <= startDate
-  const badMeter = !meterPubKey || meterPubKey.length < 66
+  // close on esc
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
-  const esc = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
-  useEffect(() => { window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc) }, [esc])
-
+  // stop click bubbling
   const stop = (e: React.MouseEvent) => e.stopPropagation()
 
-  // confirm payload (timeout = windowEnd)
-  function confirm() {
-    const values: CreateContractValues = {
+  // display helpers
+  const headerLine = `Order: ${order.kind === 'demand' ? 'Demand' : 'Offer'} · ${order.quantity ?? 0} kWh @ ${order.currency === 'SATS' ? `${order.price} sats/kWh` : `£${order.price}/kWh`}`
+
+  async function handleConfirm() {
+    await onConfirm({
       fundingMode,
-      windowStart: normalizeLocal(startLocal),
-      windowEnd: normalizeLocal(endLocal),
-      timeout: normalizeLocal(endLocal), // set refund timelock equal to window end
-      meterPubKey: meterPubKey.trim()
-    }
-    onConfirm(values)
+      windowStartISO,
+      windowEndISO,
+      meterPubKey
+    })
   }
-
-  // field wrapper with spacing
-  function Field({ label, children, mt = 14 }: { label: string; children: React.ReactNode; mt?: number }) {
-    return (
-      <div style={{ display: 'grid', marginTop: mt }}>
-        <label style={labelStyle}>{label}</label>
-        {children}
-      </div>
-    )
-  }
-
-  // title-case helper
-  const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s
-
-  const summary = order
-    ? `Order: ${cap(order.kind)} · ${order.quantity ?? '-'} kWh @ ${order.currency === 'SATS' ? `${order.price} sats/kWh` : `£${order.price}/kWh`}`
-    : `Commitment · ${commitment.quantity ?? '-'} kWh @ ${commitment.currency === 'SATS' ? `${commitment.price} sats/kWh` : `£${commitment.price}/kWh`}`
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'grid', placeItems: 'center', zIndex: 10000 }}>
-      <div onClick={stop} style={{ background: '#fff', color: '#000', padding: '1.6rem 2rem', borderRadius: 12, width: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}>
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'grid', placeItems: 'center', zIndex: 9999 }}
+      data-commitment-txid={commitment.txid}               // safe, invisible usage
+    >
+      <div onClick={stop} style={{ background: '#fff', color: '#000', padding: '1.5rem 2rem', borderRadius: 12, width: 560, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}>
         <h3 style={{ marginTop: 0, textAlign: 'center' }}>Create Contract</h3>
 
-        {/* compact context */}
-        <div style={{ display: 'grid', rowGap: 4, marginBottom: 8 }}>
-          <p style={{ margin: 0 }}><strong>{summary}</strong></p>
-          <p style={{ margin: 0, opacity: 0.9 }}><strong>Topic:</strong> {commitment.topic}</p>
-        </div>
+        <div style={{ textAlign: 'center', marginBottom: 10, fontWeight: 600 }}>{headerLine}</div>
+        <div style={{ textAlign: 'center', marginBottom: 14, color: '#333' }}>Topic: {order.topic}</div>
 
         {/* funding mode */}
-        <Field label="Funding mode" mt={10}>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 13, marginBottom: 6 }}>Funding mode</div>
           <select
             value={fundingMode}
-            onChange={(e) => setFundingMode(e.target.value as FundingMode)}
-            style={inputStyle}
+            onChange={e => setFundingMode(e.target.value as FundingMode)}
+            style={inputBase}
           >
             <option value="dummy">Dummy (1 sat)</option>
-            <option value="calculated" disabled>Calculated (qty × price) — coming soon</option>
+            <option value="calculated" disabled>Calculated (qty × price)</option>
           </select>
-        </Field>
+        </div>
 
-        {/* window start + length */}
-        <div style={{ display: 'flex', gap: 14, marginTop: 14 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <label style={labelStyle}>Window start</label>
-            <input
-              type="datetime-local"
-              value={startLocal}
-              onChange={(e) => setStartLocal(e.target.value)}
-              style={{ ...inputStyle, minWidth: 0 }}
-            />
-          </div>
-          <div style={{ width: 130 }}>
-            <label style={labelStyle}>Length (mins)</label>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={lengthMins}
-              onChange={(e) => setLengthMins(Number(e.target.value))}
-              style={inputStyle}
-            />
+        {/* window start + length (row) */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 10, alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 13, marginBottom: 6, textAlign: 'center' }}>Window start</div>
+              <input
+                type="datetime-local"
+                value={new Date(windowStartISO).toISOString().slice(0,16)}
+                onChange={(e) => setWindowStartISO(`${e.target.value}:00Z`)}
+                style={inputBase}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: 13, marginBottom: 6, textAlign: 'center' }}>Length (mins)</div>
+              <input
+                type="number"
+                value={lengthMins}
+                min={1}
+                onChange={(e) => setLengthMins(Number(e.target.value) || 0)}
+                style={inputBase}
+              />
+            </div>
           </div>
         </div>
 
-        {/* derived end (also used as timeout) */}
-        <Field label="Window end (derived)" mt={16}>
-          <input type="datetime-local" value={endLocal} disabled style={inputStyleDisabled} />
-        </Field>
+        {/* window end derived */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 13, marginBottom: 6 }}>Window end (derived)</div>
+          <input value={new Date(windowEndISO).toLocaleString()} readOnly style={{ ...inputBase, background: '#eee' }} />
+        </div>
 
-        {/* meter key */}
-        <Field label="Meter public key (dev)" mt={16}>
+        {/* meter pubkey */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 13, marginBottom: 6 }}>Meter public key (dev)</div>
           <input
-            type="text"
             value={meterPubKey}
             onChange={(e) => setMeterPubKey(e.target.value)}
-            spellCheck={false}
-            style={inputStyle}
+            style={inputBase}
           />
-        </Field>
+        </div>
 
-        {(badWindow || badMeter) && (
-          <div style={{ color: '#c62828', fontSize: 12, marginTop: 10 }}>
-            {badWindow && <div>window end must be after start</div>}
-            {badMeter && <div>meter pubkey looks invalid</div>}
-          </div>
-        )}
-
-        {/* actions */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
-          <button onClick={confirm} disabled={badWindow || badMeter}
-                  style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}>
+        {/* footer */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
+          <button
+            onClick={handleConfirm}
+            style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}
+            title="Create contract funding transaction"
+          >
             ✅ Confirm
           </button>
           <button onClick={onClose} style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}>

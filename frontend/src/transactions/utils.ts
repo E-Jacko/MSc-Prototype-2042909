@@ -1,16 +1,30 @@
-// small helpers used by tx builders + dev shims for the prototype
+// small helpers shared by tx builders
 
 import { Utils } from '@bsv/sdk'
 import { FIELD_ORDER } from './types'
 
-// normalize 'YYYY-MM-DDTHH:MM' to include seconds + z
+// --- dev meter key ----------------------------------------------------------
+// note: this is a temporary key used to prefill the "meter public key" field.
+// when you wire certificates, replace the function below to fetch from a cert.
+export const DEV_METER_PUBKEY =
+  '0279be667ef9dcbbac55a06295ce870b07029bfcd2dce28d959f2815b16f81798'
+
+// expose a single place the UI calls to prefill the meter key
+export async function getMeterPubKeyForActor(_actorKey: string): Promise<string> {
+  // in future: look up actor's certificate -> extract meter pubkey
+  return DEV_METER_PUBKEY
+}
+
+// --- date / encoding helpers ------------------------------------------------
+
+// normalize 'YYYY-MM-DDTHH:MM' to include seconds + 'Z'
 export function normalizeLocalDateTime(local: string): string {
   if (!local) return ''
   const withSeconds = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local) ? `${local}:00` : local
   return withSeconds.endsWith('Z') ? withSeconds : `${withSeconds}Z`
 }
 
-// convert iso like '2025-08-12T10:15:30.000Z' to 'YYYY-MM-DDTHH:MM'
+// convert ISO to 'YYYY-MM-DDTHH:MM'
 export function isoToLocalMinute(iso?: string): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -18,37 +32,23 @@ export function isoToLocalMinute(iso?: string): string {
   return d.toISOString().slice(0, 16)
 }
 
-// build pushdrop fields in the exact FIELD_ORDER
+// encode fields for PushDrop in one canonical order
 export function toPushDropFieldsOrdered(obj: Record<string, string | number>): number[][] {
-  return (FIELD_ORDER as readonly string[]).map((k) =>
-    Utils.toArray(String(obj[k]), 'utf8') as number[]
+  return (FIELD_ORDER as readonly string[]).map(k =>
+    Utils.toArray(String(obj[k] ?? ''), 'utf8') as number[]
   )
 }
 
-/* ---------- meter key stubs for dev ---------- */
-
-const DEFAULT_DEV_METER_PUBKEY =
-  '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
-
-export const DEV_METER_PUBKEY: string =
-  ((import.meta as any)?.env?.VITE_DEV_METER_PUBKEY as string) || DEFAULT_DEV_METER_PUBKEY
-
-// in future: look up from certificates by actor; for now return a dev key
-export function getMeterPubKeyForActor(_actorKey?: string): string {
-  return DEV_METER_PUBKEY
+// browser-safe sha256 → hex
+export async function sha256Hex(s: string): Promise<string> {
+  const bytes = new TextEncoder().encode(s)
+  const buf = await crypto.subtle.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-// in future: real ECDSA over payload with meter key; for now return empty stub
-export async function signMeterPayload(
-  _payload: Uint8Array | string
-): Promise<{ sigHex: string; pubKeyHex: string }> {
-  return { sigHex: '', pubKeyHex: getMeterPubKeyForActor() }
-}
-
-/* ---------- stable “terms hash” helper ---------- */
-// stringifies a fixed object, hashes with SHA-256, and returns hex
-export async function buildTermsHash(input: {
-  orderTxid?: string | null
+// stable contract "terms" hash (binds order+commit+window+meter)
+export async function buildTermsHash(args: {
+  orderTxid: string | null
   commitTxid: string
   topic: string
   quantityKWh: number
@@ -58,21 +58,17 @@ export async function buildTermsHash(input: {
   windowEnd: string
   meterPubKey: string
 }): Promise<string> {
-  const obj = {
-    orderTxid: input.orderTxid ?? null,
-    commitTxid: input.commitTxid,
-    topic: input.topic,
-    quantityKWh: input.quantityKWh,
-    price: input.price,
-    currency: input.currency,
-    windowStart: input.windowStart,
-    windowEnd: input.windowEnd,
-    meterPubKey: input.meterPubKey
+  const payload = {
+    orderTxid: args.orderTxid ?? null,
+    commitTxid: args.commitTxid,
+    topic: args.topic,
+    quantityKWh: Number(args.quantityKWh || 0),
+    price: Number(args.price || 0),
+    currency: args.currency,
+    windowStart: args.windowStart,
+    windowEnd: args.windowEnd,
+    meterPubKey: args.meterPubKey
   }
-  const text = JSON.stringify(obj)
-  const bytes = new TextEncoder().encode(text)
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+  const canon = JSON.stringify(payload)
+  return sha256Hex(canon)
 }

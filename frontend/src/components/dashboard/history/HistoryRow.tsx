@@ -1,20 +1,23 @@
 // one flow row: [Order] → [Commitment] → [Contract] → [Proof]
-// includes the CreateContractModal flow + submit handler
+// - shows tiles
+// - opens HistoryModal for details
+// - opens CreateContractModal to build a funding tx
+// - can send a demo "meter proof" tx (wallet-funded) so the Proof tile appears
 
 import { useState } from 'react'
 import type { FlowRow, TxDoc } from './HistoryApi'
 import HistoryModal from './HistoryModal'
 import CreateContractModal, { type CreateContractValues } from './CreateContractModal'
-import { submitTx } from '../../../transactions/submitTx'
-import { createEscrowFundingTx } from '../../../transactions/createEscrowFundingTx'
-import { buildTermsHash } from '../../../transactions/utils'
-import type { EscrowParams } from '../../../transactions/types'
 
-type Props = { row: FlowRow; myKey: string | null }
+// tx helpers
+import { createEscrowFundingTx } from '../../../transactions/createEscrowFundingTx'
+import { submitTx } from '../../../transactions/submitTx'
+import { buildMeterUnlockTx } from '../../../transactions/createUnlockTx'
 
 // strict equality helper that treats null/undefined as non-matching
-const eq = <T,>(a: T | null | undefined, b: T | null | undefined) =>
-  a !== null && a !== undefined && b !== null && b !== undefined && a === b
+function eq<T>(a: T | null | undefined, b: T | null | undefined) {
+  return a !== null && a !== undefined && b !== null && b !== undefined && a === b
+}
 
 // decide whether an order and a commitment match at the data level
 function orderAndCommitmentMatch(order?: TxDoc, commitment?: TxDoc): boolean {
@@ -43,7 +46,7 @@ function Tile({ doc, label, myKey, onOpen }: {
   const hasDoc = !!doc
   const isMine = !!doc && !!myKey && doc.actorKey === myKey
 
-  // base tile
+  // base tile style – blue border & glow only when it's mine
   const base: React.CSSProperties = {
     width: 180,
     minHeight: 110,
@@ -84,6 +87,7 @@ function Tile({ doc, label, myKey, onOpen }: {
         {doc.quantity != null && <div><strong>Qty:</strong> {doc.quantity} kWh</div>}
         {price && <div><strong>Price:</strong> {price}</div>}
         {doc.expiryISO && <div><strong>Expiry:</strong> {new Date(doc.expiryISO).toLocaleString()}</div>}
+        {/* actor key — shortened + ellipsis, same styling as other fields */}
         <div style={{ wordBreak: 'break-all' }}>
           <strong>Actor:</strong> {doc.actorKey.length > 16 ? `${doc.actorKey.slice(0, 12)}…` : doc.actorKey}
         </div>
@@ -92,16 +96,15 @@ function Tile({ doc, label, myKey, onOpen }: {
   )
 }
 
-// derive buyer/seller roles from the pair (order, commitment)
-function deriveRoles(order?: TxDoc, commitment?: TxDoc): { buyer: string | null, seller: string | null } {
-  if (!order || !commitment) return { buyer: null, seller: null }
-  if (order.kind === 'demand') {
-    return { buyer: order.actorKey, seller: commitment.actorKey }
-  }
-  if (order.kind === 'offer') {
-    return { buyer: commitment.actorKey, seller: order.actorKey }
-  }
-  return { buyer: null, seller: null }
+type Props = { row: FlowRow; myKey: string | null }
+
+// derive buyer/seller keys depending on offer vs demand
+function deriveParties(order?: TxDoc, commitment?: TxDoc): { buyerKey: string; sellerKey: string } {
+  const buyerSellerFallback = { buyerKey: commitment?.actorKey ?? '', sellerKey: order?.actorKey ?? '' }
+  if (!order || !commitment) return buyerSellerFallback
+  if (order.kind === 'demand') return { buyerKey: order.actorKey, sellerKey: commitment.actorKey }
+  if (order.kind === 'offer') return { buyerKey: commitment.actorKey, sellerKey: order.actorKey }
+  return buyerSellerFallback
 }
 
 export default function HistoryRow({ row, myKey }: Props) {
@@ -109,73 +112,86 @@ export default function HistoryRow({ row, myKey }: Props) {
   const [openCreate, setOpenCreate] = useState(false)
 
   const matchOK = orderAndCommitmentMatch(row.order, row.commitment)
-  const { buyer: buyerKeyRaw, seller: sellerKeyRaw } = deriveRoles(row.order, row.commitment)
-
-  // dev-friendly fallbacks so single-actor testing still works
-  const buyerKey = buyerKeyRaw ?? myKey ?? ''
-  const sellerKey = sellerKeyRaw ?? buyerKey
+  const parties = deriveParties(row.order, row.commitment)
 
   const arrow: React.CSSProperties = { alignSelf: 'center', opacity: 0.7 }
-  const okArrow: React.CSSProperties = {
-    alignSelf: 'center',
-    color: '#29c467',
-    fontWeight: 700
-  }
-  const badArrow: React.CSSProperties = {
-    alignSelf: 'center',
-    color: '#ff5252',
-    fontWeight: 700
-  }
+  const okArrow: React.CSSProperties = { alignSelf: 'center', color: '#29c467', fontWeight: 700 }
+  const badArrow: React.CSSProperties = { alignSelf: 'center', color: '#ff5252', fontWeight: 700 }
 
   const canCreateContract =
     !!open && !!row.commitment && open.txid === row.commitment.txid && matchOK
 
+  // handle confirm from CreateContractModal
   async function handleConfirm(values: CreateContractValues) {
     try {
-      if (!row.commitment) return
-
-      // build terms hash (binds window + qty/price + meter key)
-      const termsHash = await buildTermsHash({
-        orderTxid: row.order?.txid ?? null,
-        commitTxid: row.commitment.txid,
-        topic: row.commitment.topic,
-        quantityKWh: row.commitment.quantity ?? row.order?.quantity ?? 0,
-        price: row.commitment.price ?? row.order?.price ?? 0,
-        currency: (row.commitment.currency ?? row.order?.currency ?? 'GBP') as 'GBP' | 'SATS',
-        windowStart: values.windowStart,
-        windowEnd: values.windowEnd,
-        meterPubKey: values.meterPubKey
-      })
-
-      // amount for the placeholder escrow
-      const amountSats = values.fundingMode === 'dummy' ? 1 : 1 // calculated later
-
-      const params: EscrowParams = {
-        buyerPubKey: buyerKey,
-        sellerPubKey: sellerKey,
-        meterPubKey: values.meterPubKey,
-        quantityKWh: row.commitment.quantity ?? row.order?.quantity ?? 0,
-        price: row.commitment.price ?? row.order?.price ?? 0,
-        currency: (row.commitment.currency ?? row.order?.currency ?? 'GBP') as 'GBP' | 'SATS',
-        windowStart: values.windowStart,
-        windowEnd: values.windowEnd,
-        timeout: values.timeout, // equals windowEnd for now
-        termsHash,
-        amountSats,
-        topic: row.commitment.topic,
-        commitmentTxid: row.commitment.txid
+      if (!row.order || !row.commitment) {
+        alert('missing order/commitment context')
+        return
       }
 
-      // build and submit
-      const unsigned = await createEscrowFundingTx(params)
+      // map ui values -> builder args (use the names expected by createEscrowFundingTx)
+      const unsigned = await createEscrowFundingTx({
+        buyerPubKey: parties.buyerKey,
+        sellerPubKey: parties.sellerKey,
+        meterPubKey: values.meterPubKey,
+        quantityKWh: row.order.quantity ?? row.commitment.quantity ?? 0,
+        windowStart: values.windowStartISO,   // pass iso string under expected key
+        windowEnd: values.windowEndISO,       // pass iso string under expected key
+        timeout: values.windowEndISO,         // for prototype: timeout == window end
+        termsHash: 'demo-terms-hash',         // todo: replace with buildTermsHash(...)
+        amountSats: 1,
+        topic: row.order.topic,
+        commitmentTxid: row.commitment.txid,
+        price: row.order.price ?? 0,
+        currency: (row.order.currency as 'GBP' | 'SATS') ?? 'GBP'
+      })
+
       const { txid } = await submitTx(unsigned)
       console.log('[HistoryRow] contract broadcasted', txid)
-
-      setOpenCreate(false)
       alert('Contract submitted. Use Refresh to see the new tile if it does not appear automatically.')
     } catch (e) {
       console.error('[HistoryRow] create contract failed', e)
-      alert('contract creation failed. check console for details')
+      alert('contract submission failed. check console for details')
+    } finally {
+      setOpenCreate(false)
+      setOpen(null)
+    }
+  }
+
+  // send a *demo* proof tx (wallet-funded; not spending the escrow yet)
+  async function handleSendProof() {
+    try {
+      if (!row.contract || !row.order || !row.commitment) return
+      const { buyerKey, sellerKey } = parties
+
+      const encrypted = {
+        ciphertext: `dummy-proof::${row.contract.txid}`,
+        boxForBuyer: 'dev-box',
+        sha256: '00'.repeat(32)
+      }
+
+      const unsigned = await buildMeterUnlockTx(
+        { txid: row.contract.txid, vout: 0 }, // note: demo; not the real escrow spend yet
+        {
+          sellerKey,
+          buyerKey,
+          topic: row.order.topic,
+          quantity: row.order.quantity ?? 0,
+          price: row.order.price ?? 0,
+          currency: (row.order.currency as 'GBP' | 'SATS') ?? 'GBP'
+        },
+        'dev-meter-privkey',
+        encrypted
+      )
+
+      const { txid } = await submitTx(unsigned)
+      console.log('[HistoryRow] send proof broadcasted', txid)
+      alert('Proof submitted. Use Refresh to see the new tile if it does not appear automatically.')
+    } catch (e) {
+      console.error('[HistoryRow] send proof failed', e)
+      alert('proof submission failed. check console for details')
+    } finally {
+      setOpen(null)
     }
   }
 
@@ -197,20 +213,22 @@ export default function HistoryRow({ row, myKey }: Props) {
         <Tile label="Proof"       doc={row.proof}       myKey={myKey} onOpen={() => setOpen(row.proof!)} />
       </div>
 
+      {/* details modal + contextual actions */}
       {open && (
         <HistoryModal
           doc={open}
           onClose={() => setOpen(null)}
           canCreateContract={canCreateContract}
-          onCreate={() => setOpenCreate(true)}
+          onCreateContract={() => setOpenCreate(true)}
+          onSendProof={open.kind === 'contract' ? handleSendProof : undefined}
         />
       )}
 
-      {openCreate && row.commitment && (
+      {/* create contract modal */}
+      {openCreate && row.order && row.commitment && (
         <CreateContractModal
           order={row.order}
           commitment={row.commitment}
-          buyerKey={buyerKey}
           onClose={() => setOpenCreate(false)}
           onConfirm={handleConfirm}
         />

@@ -1,5 +1,6 @@
-// submitter that funds/signs via wallet and posts *raw beef* to overlay-express
-// returns { txid, beefBytes }
+// submitters:
+// - submitTx(unsigned): asks wallet to fund+sign, then POSTs beef bytes to overlay
+// - submitPrebuilt(txOrBytes, topics): POSTs *exact* byte array to overlay (no wallet)
 
 import { WalletClient, Transaction, PushDrop, Utils } from '@bsv/sdk'
 
@@ -16,6 +17,12 @@ function topicFromTx(tx: Transaction): string {
   const topic = fields[1]
   if (!topic) throw new Error('topic not found in tx')
   return topic
+}
+
+// helper: tx -> byte array (same shape wallet returns)
+function txToBytes(tx: Transaction): number[] {
+  const hex = tx.toHex()                                  // raw tx hex
+  return Utils.toArray(hex, 'hex') as number[]            // numeric array
 }
 
 export async function submitTx(unsigned: Transaction): Promise<{ txid: string; beefBytes: number }> {
@@ -49,13 +56,28 @@ export async function submitTx(unsigned: Transaction): Promise<{ txid: string; b
   const topic = topicFromTx(unsigned)
   const res = await fetch(`${OVERLAY_API}/submit`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-topics': JSON.stringify([topic])
-    },
+    headers: { 'Content-Type': 'application/json', 'x-topics': JSON.stringify([topic]) },
     body: JSON.stringify(beef)
   })
   if (!res.ok) throw new Error(`submit failed: ${res.status}`)
 
   return { txid, beefBytes: beef.length }
+}
+
+export async function submitPrebuilt(txOrBytes: Transaction | number[], topics: string[]): Promise<{ txid: string }> {
+  // normalize to a byte array the overlay expects
+  const beef: number[] = Array.isArray(txOrBytes) ? txOrBytes : txToBytes(txOrBytes)
+
+  // compute txid locally for logging
+  let txid = 'unknown'
+  try { txid = Transaction.fromBEEF(beef).id('hex') } catch {}
+
+  const res = await fetch(`${OVERLAY_API}/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-topics': JSON.stringify(topics) },
+    body: JSON.stringify(beef)
+  })
+  if (!res.ok) throw new Error(`submit failed: ${res.status}`)
+
+  return { txid }
 }
