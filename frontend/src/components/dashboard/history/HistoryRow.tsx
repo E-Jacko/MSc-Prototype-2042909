@@ -129,26 +129,23 @@ export default function HistoryRow({ row, myKey }: Props) {
         return
       }
 
-      // map ui values -> builder args (use the names expected by createEscrowFundingTx)
       const unsigned = await createEscrowFundingTx({
         buyerPubKey: parties.buyerKey,
         sellerPubKey: parties.sellerKey,
         meterPubKey: values.meterPubKey,
         quantityKWh: row.order.quantity ?? row.commitment.quantity ?? 0,
-        windowStart: values.windowStartISO,   // pass iso string under expected key
-        windowEnd: values.windowEndISO,       // pass iso string under expected key
-        timeout: values.windowEndISO,         // for prototype: timeout == window end
-        termsHash: 'demo-terms-hash',         // todo: replace with buildTermsHash(...)
-        amountSats: 1,
+        windowStartISO: values.windowStartISO,
+        windowEndISO: values.windowEndISO,
         topic: row.order.topic,
         commitmentTxid: row.commitment.txid,
         price: row.order.price ?? 0,
-        currency: (row.order.currency as 'GBP' | 'SATS') ?? 'GBP'
+        currency: (row.order.currency as 'GBP' | 'SATS') ?? 'GBP',
+        amountSats: 1
       })
 
       const { txid } = await submitTx(unsigned)
       console.log('[HistoryRow] contract broadcasted', txid)
-      alert('Contract submitted. Use Refresh to see the new tile if it does not appear automatically.')
+      alert('contract submitted. use Refresh to see the new tile if it does not appear automatically.')
     } catch (e) {
       console.error('[HistoryRow] create contract failed', e)
       alert('contract submission failed. check console for details')
@@ -171,7 +168,7 @@ export default function HistoryRow({ row, myKey }: Props) {
       }
 
       const unsigned = await buildMeterUnlockTx(
-        { txid: row.contract.txid, vout: 0 }, // note: demo; not the real escrow spend yet
+        { txid: row.contract.txid, vout: 0 }, // demo; not the real escrow spend yet
         {
           sellerKey,
           buyerKey,
@@ -186,7 +183,7 @@ export default function HistoryRow({ row, myKey }: Props) {
 
       const { txid } = await submitTx(unsigned)
       console.log('[HistoryRow] send proof broadcasted', txid)
-      alert('Proof submitted. Use Refresh to see the new tile if it does not appear automatically.')
+      alert('proof submitted. use Refresh to see the new tile if it does not appear automatically.')
     } catch (e) {
       console.error('[HistoryRow] send proof failed', e)
       alert('proof submission failed. check console for details')

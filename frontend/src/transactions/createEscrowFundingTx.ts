@@ -1,46 +1,64 @@
-// builds an *unsigned* funding ("contract") tx
-// vout 0: placeholder escrow (OP_TRUE) with amountSats
-// vout 1: 1-sat PushDrop doc { type='contract', topic, actor=<buyer>, parent=<commitment.txid>, ... }
-// later we swap OP_TRUE for the real EnergyEscrow locking script
+// Creates the *funding* transaction for an energy escrow.
+// vout0: PushDrop document describing the contract
+// vout1: OP_RETURN “contract” note (compact) that the lookup service indexes
 
-import { WalletClient, Transaction, PushDrop, Script } from '@bsv/sdk'
-import { toPushDropFieldsOrdered } from './utils'
-import type { EscrowParams } from './types'
+import { WalletClient, Transaction, PushDrop } from '@bsv/sdk'
+import {
+  toPushDropFieldsOrdered,
+  buildTermsHash,
+  buildContractOpReturn
+} from './utils'
 
-// simple namespace tag for pushdrop
+export type EscrowFundingParams = {
+  buyerPubKey: string
+  sellerPubKey: string
+  meterPubKey: string
+  quantityKWh: number
+  windowStartISO: string
+  windowEndISO: string
+  topic: string
+  commitmentTxid: string
+  price: number
+  currency: 'GBP' | 'SATS'
+  amountSats: number
+}
+
 const PROTOCOL_ID: [0, string] = [0, 'energy']
 
-export async function createEscrowFundingTx(params: EscrowParams): Promise<Transaction> {
-  const {
-    buyerPubKey,
-    topic,
-    commitmentTxid,
-    quantityKWh,
-    price,
-    currency,
-    windowEnd,
-    amountSats = 1
-  } = params
-
-  // build vout 1 pushdrop (this is what history decodes)
+export async function createEscrowFundingTx(params: EscrowFundingParams) {
   const wallet = new WalletClient('auto', 'localhost')
+
+  // Derive a stable “terms” hash to bind contract semantics
+  const termsHash = await buildTermsHash({
+    orderTxid: null,
+    commitTxid: params.commitmentTxid,
+    topic: params.topic,
+    quantityKWh: params.quantityKWh,
+    price: params.price,
+    currency: params.currency,
+    windowStart: params.windowStartISO,
+    windowEnd: params.windowEndISO,
+    meterPubKey: params.meterPubKey
+  })
+
+  // vout0: PushDrop contract record (human/overlay readable)
   const pd = new PushDrop(wallet, 'localhost')
-
-  const payload = {
-    type: 'contract',
-    topic,
-    actor: buyerPubKey,
-    parent: commitmentTxid,
-    createdAt: new Date().toISOString(),
-    expiresAt: windowEnd,
-    quantity: quantityKWh,
-    price,
-    currency
-  }
-
-  const fields = toPushDropFieldsOrdered(payload)
-  const pdLocking = await pd.lock(
-    fields,
+  const contractDoc = toPushDropFieldsOrdered({
+    kind: 'contract',
+    topic: params.topic,
+    buyer: params.buyerPubKey,
+    seller: params.sellerPubKey,
+    meter: params.meterPubKey,
+    quantityKWh: String(params.quantityKWh),
+    windowStart: params.windowStartISO,
+    windowEnd: params.windowEndISO,
+    price: String(params.price),
+    currency: params.currency,
+    parent: params.commitmentTxid,
+    termsHash
+  })
+  const contractLocking = await pd.lock(
+    contractDoc,
     PROTOCOL_ID,
     'default',
     'self',
@@ -49,19 +67,18 @@ export async function createEscrowFundingTx(params: EscrowParams): Promise<Trans
     'before'
   )
 
-  // build tx
+  // vout1: compact indexable “contract” note for the lookup service
+  const contractNote = buildContractOpReturn({
+    kind: 'contract',
+    parent: params.commitmentTxid,
+    topic: params.topic,
+    sha256: termsHash
+  })
+
   const tx = new Transaction()
-
-  // vout 0: placeholder escrow (OP_TRUE) – spendable by anyone – demo only
-  // later: replace with compiled EnergyEscrow locking script
-  const opTrue = Script.fromHex('51') // OP_TRUE
-  tx.addOutput({ satoshis: amountSats, lockingScript: opTrue })
-
-  // vout 1: pushdrop doc (1 sat)
-  tx.addOutput({ satoshis: 1, lockingScript: pdLocking })
-
-  // metadata for debug
-  tx.updateMetadata({ topic, type: 'contract' })
+  tx.addOutput({ satoshis: 1, lockingScript: contractLocking }) // vout0
+  tx.addOutput({ satoshis: 1, lockingScript: contractNote })    // vout1  ⬅️ 1 sat (not 0)
+  tx.updateMetadata({ topic: params.topic, type: 'contract' })
 
   return tx
 }
