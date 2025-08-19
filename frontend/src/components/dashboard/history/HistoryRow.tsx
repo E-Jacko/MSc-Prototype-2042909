@@ -1,25 +1,16 @@
-// one flow row: [Order] → [Commitment] → [Contract] → [Proof]
-// - shows tiles
-// - opens HistoryModal for details
-// - opens CreateContractModal to build a funding tx
-// - can send a demo "meter proof" tx (wallet-funded) so the Proof tile appears
-
 import { useState } from 'react'
 import type { FlowRow, TxDoc } from './HistoryApi'
 import HistoryModal from './HistoryModal'
 import CreateContractModal, { type CreateContractValues } from './CreateContractModal'
 
-// tx helpers
-import { createEscrowFundingTx } from '../../../transactions/createEscrowFundingTx'
+import { createEscrowFundingTx, computeTermsHash } from '../../../transactions/createEscrowFundingTx'
 import { submitTx } from '../../../transactions/submitTx'
-import { buildMeterUnlockTx } from '../../../transactions/createUnlockTx'
+import { createUnlockTx } from '../../../transactions/createUnlockTx'
 
-// strict equality helper that treats null/undefined as non-matching
 function eq<T>(a: T | null | undefined, b: T | null | undefined) {
   return a !== null && a !== undefined && b !== null && b !== undefined && a === b
 }
 
-// decide whether an order and a commitment match at the data level
 function orderAndCommitmentMatch(order?: TxDoc, commitment?: TxDoc): boolean {
   if (!order || !commitment) return false
   if (!eq(order.topic, commitment.topic)) return false
@@ -46,7 +37,6 @@ function Tile({ doc, label, myKey, onOpen }: {
   const hasDoc = !!doc
   const isMine = !!doc && !!myKey && doc.actorKey === myKey
 
-  // base tile style – blue border & glow only when it's mine
   const base: React.CSSProperties = {
     width: 180,
     minHeight: 110,
@@ -75,7 +65,7 @@ function Tile({ doc, label, myKey, onOpen }: {
 
   const header =
     label === 'Order'
-      ? (doc.kind.charAt(0).toUpperCase() + doc.kind.slice(1)) // Offer / Demand
+      ? (doc.kind.charAt(0).toUpperCase() + doc.kind.slice(1))
       : label
 
   const price = priceTxt(doc)
@@ -87,7 +77,6 @@ function Tile({ doc, label, myKey, onOpen }: {
         {doc.quantity != null && <div><strong>Qty:</strong> {doc.quantity} kWh</div>}
         {price && <div><strong>Price:</strong> {price}</div>}
         {doc.expiryISO && <div><strong>Expiry:</strong> {new Date(doc.expiryISO).toLocaleString()}</div>}
-        {/* actor key — shortened + ellipsis, same styling as other fields */}
         <div style={{ wordBreak: 'break-all' }}>
           <strong>Actor:</strong> {doc.actorKey.length > 16 ? `${doc.actorKey.slice(0, 12)}…` : doc.actorKey}
         </div>
@@ -98,7 +87,6 @@ function Tile({ doc, label, myKey, onOpen }: {
 
 type Props = { row: FlowRow; myKey: string | null }
 
-// derive buyer/seller keys depending on offer vs demand
 function deriveParties(order?: TxDoc, commitment?: TxDoc): { buyerKey: string; sellerKey: string } {
   const buyerSellerFallback = { buyerKey: commitment?.actorKey ?? '', sellerKey: order?.actorKey ?? '' }
   if (!order || !commitment) return buyerSellerFallback
@@ -118,16 +106,24 @@ export default function HistoryRow({ row, myKey }: Props) {
   const okArrow: React.CSSProperties = { alignSelf: 'center', color: '#29c467', fontWeight: 700 }
   const badArrow: React.CSSProperties = { alignSelf: 'center', color: '#ff5252', fontWeight: 700 }
 
-  const canCreateContract =
-    !!open && !!row.commitment && open.txid === row.commitment.txid && matchOK
-
-  // handle confirm from CreateContractModal
   async function handleConfirm(values: CreateContractValues) {
     try {
       if (!row.order || !row.commitment) {
         alert('missing order/commitment context')
         return
       }
+
+      const termsHash = await computeTermsHash({
+        orderTxid: row.order.txid ?? null,
+        commitTxid: row.commitment.txid,
+        topic: row.order.topic,
+        quantityKWh: row.order.quantity ?? row.commitment.quantity ?? 0,
+        price: row.order.price ?? 0,
+        currency: (row.order.currency as 'GBP' | 'SATS') ?? 'GBP',
+        windowStartISO: values.windowStartISO,
+        windowEndISO: values.windowEndISO,
+        meterPubKey: values.meterPubKey
+      })
 
       const unsigned = await createEscrowFundingTx({
         buyerPubKey: parties.buyerKey,
@@ -136,16 +132,17 @@ export default function HistoryRow({ row, myKey }: Props) {
         quantityKWh: row.order.quantity ?? row.commitment.quantity ?? 0,
         windowStartISO: values.windowStartISO,
         windowEndISO: values.windowEndISO,
+        termsHash,
+        amountSats: 1,
         topic: row.order.topic,
         commitmentTxid: row.commitment.txid,
         price: row.order.price ?? 0,
-        currency: (row.order.currency as 'GBP' | 'SATS') ?? 'GBP',
-        amountSats: 1
+        currency: (row.order.currency as 'GBP' | 'SATS') ?? 'GBP'
       })
 
       const { txid } = await submitTx(unsigned)
       console.log('[HistoryRow] contract broadcasted', txid)
-      alert('contract submitted. use Refresh to see the new tile if it does not appear automatically.')
+      alert('Contract submitted. Use Refresh to see the new tile if it does not appear automatically.')
     } catch (e) {
       console.error('[HistoryRow] create contract failed', e)
       alert('contract submission failed. check console for details')
@@ -155,7 +152,6 @@ export default function HistoryRow({ row, myKey }: Props) {
     }
   }
 
-  // send a *demo* proof tx (wallet-funded; not spending the escrow yet)
   async function handleSendProof() {
     try {
       if (!row.contract || !row.order || !row.commitment) return
@@ -163,12 +159,12 @@ export default function HistoryRow({ row, myKey }: Props) {
 
       const encrypted = {
         ciphertext: `dummy-proof::${row.contract.txid}`,
-        boxForBuyer: 'dev-box',
-        sha256: '00'.repeat(32)
+        sha256: '00'.repeat(32),
+        boxFor: 'buyer' as const
       }
 
-      const unsigned = await buildMeterUnlockTx(
-        { txid: row.contract.txid, vout: 0 }, // demo; not the real escrow spend yet
+      const unsigned = await createUnlockTx(
+        { txid: row.contract.txid, vout: 0 },
         {
           sellerKey,
           buyerKey,
@@ -183,7 +179,7 @@ export default function HistoryRow({ row, myKey }: Props) {
 
       const { txid } = await submitTx(unsigned)
       console.log('[HistoryRow] send proof broadcasted', txid)
-      alert('proof submitted. use Refresh to see the new tile if it does not appear automatically.')
+      alert('Proof submitted. Use Refresh to see the new tile if it does not appear automatically.')
     } catch (e) {
       console.error('[HistoryRow] send proof failed', e)
       alert('proof submission failed. check console for details')
@@ -210,18 +206,16 @@ export default function HistoryRow({ row, myKey }: Props) {
         <Tile label="Proof"       doc={row.proof}       myKey={myKey} onOpen={() => setOpen(row.proof!)} />
       </div>
 
-      {/* details modal + contextual actions */}
       {open && (
         <HistoryModal
           doc={open}
           onClose={() => setOpen(null)}
-          canCreateContract={canCreateContract}
+          canCreateContract={!!row.commitment && open.txid === row.commitment.txid && matchOK}
           onCreateContract={() => setOpenCreate(true)}
           onSendProof={open.kind === 'contract' ? handleSendProof : undefined}
         />
       )}
 
-      {/* create contract modal */}
       {openCreate && row.order && row.commitment && (
         <CreateContractModal
           order={row.order}

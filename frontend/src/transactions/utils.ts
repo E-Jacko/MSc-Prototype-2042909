@@ -1,22 +1,21 @@
 // small helpers shared by tx builders
 
-import { Utils, Script } from '@bsv/sdk'
+import { Utils, OP, LockingScript } from '@bsv/sdk'
 import { FIELD_ORDER } from './types'
 
-/* ------------------------------------------------------------------ */
-/*  Dev meter key (used to prefill meter pubkey until cert hookup)    */
-/* ------------------------------------------------------------------ */
-
+// --- dev meter key ----------------------------------------------------------
+// note: this is a temporary key used to prefill the "meter public key" field.
+// when you wire certificates, replace the function below to fetch from a cert.
 export const DEV_METER_PUBKEY =
   '0279be667ef9dcbbac55a06295ce870b07029bfcd2dce28d959f2815b16f81798'
 
+// expose a single place the UI calls to prefill the meter key
 export async function getMeterPubKeyForActor(_actorKey: string): Promise<string> {
+  // in future: look up actor's certificate -> extract meter pubkey
   return DEV_METER_PUBKEY
 }
 
-/* ------------------------------------------------------------------ */
-/*  Date / encoding helpers                                           */
-/* ------------------------------------------------------------------ */
+// --- date / encoding helpers ------------------------------------------------
 
 // normalize 'YYYY-MM-DDTHH:MM' to include seconds + 'Z'
 export function normalizeLocalDateTime(local: string): string {
@@ -74,43 +73,11 @@ export async function buildTermsHash(args: {
   return sha256Hex(canon)
 }
 
-/* ------------------------------------------------------------------ */
-/*  Compact OP_RETURN “notes” that the lookup service indexes         */
-/* ------------------------------------------------------------------ */
-
-export type BaseNote = {
-  kind: 'contract' | 'proof'
-  parent: string        // txid we attach to (commitment for contracts, contract for proofs)
-  topic: string
-  sha256: string        // hash of terms/proof package
-}
-
-export type ContractNote = BaseNote & { kind: 'contract' }
-export type ProofNote = BaseNote & { kind: 'proof'; boxFor: 'buyer' | 'seller' }
-
-// Build OP_FALSE OP_RETURN <json> script for a *contract* note.
-// Only the fields the indexer expects are allowed.
-export function buildContractOpReturn(note: ContractNote): Script {
-  const json = JSON.stringify({
-    kind: 'contract',
-    parent: note.parent,
-    topic: note.topic,
-    sha256: note.sha256
-  })
-  const hex = Utils.toHex(Utils.toArray(json, 'utf8'))
-  return Script.fromASM(`OP_FALSE OP_RETURN ${hex}`)
-}
-
-// Build OP_FALSE OP_RETURN <json> script for a *proof* note.
-// Proofs additionally record who the encrypted box is intended for.
-export function buildProofOpReturn(note: ProofNote): Script {
-  const json = JSON.stringify({
-    kind: 'proof',
-    parent: note.parent,
-    topic: note.topic,
-    sha256: note.sha256,
-    boxFor: note.boxFor
-  })
-  const hex = Utils.toHex(Utils.toArray(json, 'utf8'))
-  return Script.fromASM(`OP_FALSE OP_RETURN ${hex}`)
+// --- OP_RETURN helper -------------------------------------------------------
+// Build a single-chunk OP_RETURN that contains a UTF-8 JSON note.
+export function buildOpReturnJson(note: Record<string, unknown>): LockingScript {
+  const json = JSON.stringify(note)
+  const bytes = Utils.toArray(json, 'utf8') as number[]
+  // one chunk: OP_RETURN + unformatted data (SDK will write raw after OP_RETURN)
+  return new LockingScript([{ op: OP.OP_RETURN, data: bytes }])
 }

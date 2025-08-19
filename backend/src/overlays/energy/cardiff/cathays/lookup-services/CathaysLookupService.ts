@@ -1,8 +1,6 @@
 // cathays lookup service
-// - decodes pushdrop, validates topic + type
+// - decodes PushDrop OR OP_RETURN JSON
 // - writes orders to 'cathaysEnergyOrders' and commitments/contracts/proofs to 'cathaysEnergyRecords'
-// - does not delete docs on spend; we want the full history
-// - exposes a small custom lookup api for the history page
 
 import {
   LookupService,
@@ -11,134 +9,131 @@ import {
   OutputAdmittedByTopic,
   OutputSpent
 } from '@bsv/overlay'
-import { PushDrop, Utils } from '@bsv/sdk'
+import { PushDrop, Utils, LockingScript, OP } from '@bsv/sdk'
 import { CathaysStorage } from '../storage/CathaysStorage.ts'
 import docs from '../topic-managers/CathaysTopicDocs.md.js'
 
-// ---------- constants ----------
+const SUPPORTED = ['offer', 'demand', 'commitment', 'contract', 'proof'] as const
+type SupportedType = (typeof SUPPORTED)[number]
+const TOPIC = 'tm_cathays'
 
-const SUPPORTED = ['offer','demand','commitment','contract','proof'] as const
-const TOPIC = 'tm_cathays' // must match the topic manager
+function isSupported(x: string): x is SupportedType {
+  return (SUPPORTED as readonly string[]).includes(x)
+}
 
-type SupportedType = typeof SUPPORTED[number]
+// Try OP_RETURN JSON parse
+function parseOpReturnJSON(ls: LockingScript): any | null {
+  try {
+    const c0 = ls.chunks[0]
+    if (!c0 || c0.op !== OP.OP_RETURN) return null
+    const txt = Utils.toUTF8(c0.data ?? [])
+    if (!txt || txt[0] !== '{') return null
+    return JSON.parse(txt)
+  } catch { return null }
+}
 
-type QueryInput =
-  | { kind: 'recent'; limit?: number; skip?: number }
-  | { kind: 'my-orders'; actorKey: string; limit?: number; skip?: number }
-  | { kind: 'my-commitments'; actorKey: string; limit?: number; skip?: number }
-  | { kind: 'flow-by-order'; txid: string }
-  | { kind: 'flow-by-commitment'; txid: string }
+// Normalise any decoded payload into a "fields" string array the storage expects.
+// Minimal contract: fields[0]=type, fields[1]=topic, fields[2]=actor or 'null', fields[3]=parent or 'null'.
+function toFieldsFromPushDrop(strings: string[]): string[] {
+  // already strings in order
+  return strings
+}
 
-// ---------- service ----------
+function toFieldsFromNote(note: any): string[] {
+  const type = String(note.kind ?? '')
+  const topic = String(note.topic ?? '')
+  const actor = note.actor ? String(note.actor) : 'null'
+  const parent = note.parent ? String(note.parent) : 'null'
+  // keep extra keys if present (sha256/boxFor/etc) for future use
+  const extras: string[] = []
+  if (note.sha256) extras.push(String(note.sha256))
+  if (note.boxFor) extras.push(String(note.boxFor))
+  if (note.buyer) extras.push(String(note.buyer))
+  if (note.seller) extras.push(String(note.seller))
+  return [type, topic, actor, parent, ...extras]
+}
 
 export class CathaysLookupService implements LookupService {
-  // note: topic-manager uses locking-script admission for tm_cathays
   readonly admissionMode = 'locking-script'
-  // note: we don't rely on spend notifications to delete history
   readonly spendNotificationMode = 'none'
 
   constructor(private readonly storage: CathaysStorage) {}
 
-  // ---------- overlay callbacks ----------
-
   async outputAdmittedByTopic(p: OutputAdmittedByTopic): Promise<void> {
-    // guard: ensure we're seeing the right admission mode + topic
     if (p.mode !== 'locking-script' || p.topic !== TOPIC) return
 
     try {
-      // decode pushdrop and normalise to utf8 strings
-      const { fields } = PushDrop.decode(p.lockingScript)
-      const strings = fields.map(Utils.toUTF8)
+      // 1) Try PushDrop
+      try {
+        const { fields } = PushDrop.decode(p.lockingScript)
+        const strings = fields.map(Utils.toUTF8)
+        const type = strings[0] ?? ''
+        const topic = strings[1] ?? ''
+        if (!isSupported(type) || topic !== TOPIC) return
 
-      // validate type + topic from the payload
-      const type = (strings[0] as SupportedType) ?? 'offer'
-      const topic = strings[1] ?? ''
-      if (!SUPPORTED.includes(type) || topic !== TOPIC) return
+        const actorKey = strings[2] && strings[2] !== 'null' ? strings[2] : null
+        if (type === 'offer' || type === 'demand') {
+          await this.storage.upsertOrder(p.txid, p.outputIndex, toFieldsFromPushDrop(strings), topic, actorKey)
+        } else {
+          await this.storage.upsertRecord(p.txid, p.outputIndex, toFieldsFromPushDrop(strings), topic, actorKey)
+        }
+        return
+      } catch { /* fall through to OP_RETURN */ }
 
-      // pull common denormalised bits if present in the payload schema
-      const actorKey = strings[2] && strings[2] !== 'null' ? strings[2] : null
+      // 2) Try OP_RETURN JSON
+      const note = parseOpReturnJSON(p.lockingScript)
+      if (!note) return
+      const type = String(note.kind ?? '')
+      const topic = String(note.topic ?? '')
+      if (!isSupported(type) || topic !== TOPIC) return
 
-      // route to the right collection
+      const fields = toFieldsFromNote(note)
+      const actorKey = fields[2] && fields[2] !== 'null' ? fields[2] : null
+
       if (type === 'offer' || type === 'demand') {
-        await this.storage.upsertOrder(p.txid, p.outputIndex, strings, topic, actorKey)
+        await this.storage.upsertOrder(p.txid, p.outputIndex, fields, topic, actorKey)
       } else {
-        await this.storage.upsertRecord(p.txid, p.outputIndex, strings, topic, actorKey)
+        await this.storage.upsertRecord(p.txid, p.outputIndex, fields, topic, actorKey)
       }
     } catch (err) {
-      console.error(`failed to admit tx ${p.txid}.${p.outputIndex}:`, err)
+      console.error(`[cathays] admit failed ${p.txid}.${p.outputIndex}:`, err)
     }
   }
 
   async outputSpent(_p: OutputSpent): Promise<void> {
-    // note: do nothing; we keep docs for historical views even when spent
+    // keep history; no-op
   }
 
   async outputEvicted(_txid: string, _outputIndex: number): Promise<void> {
-    // note: do nothing; if you want to prune evictions for reorg handling,
-    //       add a very careful reconciler instead of blind deletes
+    // optional pruning; no-op
   }
 
-  // ---------- custom lookup api ----------
-  // everything between the lines below is the custom lookup used by the history page.
-  // it reads a simple json string from q.input, routes to storage helpers, and returns UTXO references.
-   // --------------------------------------------------------------------------------
-   async lookup(q: LookupQuestion): Promise<LookupFormula> {
-    if (!q || q.service !== 'ls_cathays') {
-      throw new Error('unsupported lookup service')
+  // ---------- custom lookup passthrough ----------
+  async lookup(q: LookupQuestion): Promise<LookupFormula> {
+    if (!q || q.service !== 'ls_cathays') throw new Error('unsupported lookup service')
+    const raw: any = (q as any).query ?? (q as any).input ?? null
+    const parse = (x: unknown) => {
+      if (!x) return null
+      if (typeof x === 'string') try { return JSON.parse(x) } catch { return null }
+      if (typeof x === 'object') return x as any
+      return null
     }
+    const payload = parse(raw)
 
-    // read the payload as defined by the overlay api:
-    // - primary: q.query (typed object per docs)
-    // - fallback: q.input (older/stringified payloads)
-    const raw = (q as any).query ?? (q as any).input ?? null
+    if (!payload) return this.storage.recentOrders(50, 0)
 
-    // parse safely whether it's already an object or a json string
-    const parsed = this.safeParseInput(raw) as QueryInput | null
-
-    if (!parsed) {
-      // default to "recent" if nothing provided
-      return this.storage.recentOrders(50, 0)
-    }
-
-    switch (parsed.kind) {
-      case 'recent':
-        return this.storage.recentOrders(parsed.limit ?? 50, parsed.skip ?? 0)
-
-      case 'my-orders':
-        return this.storage.myOrders(parsed.actorKey, parsed.limit ?? 50, parsed.skip ?? 0)
-
-      case 'my-commitments':
-        return this.storage.myCommitments(parsed.actorKey, parsed.limit ?? 50, parsed.skip ?? 0)
-
-      case 'flow-by-order':
-        return this.storage.flowByOrderTxid(parsed.txid)
-
-      case 'flow-by-commitment':
-        return this.storage.flowByCommitmentTxid(parsed.txid)
-
-      default:
-        return this.storage.recentOrders(50, 0)
+    switch (payload.kind) {
+      case 'recent': return this.storage.recentOrders(payload.limit ?? 50, payload.skip ?? 0)
+      case 'my-orders': return this.storage.myOrders(payload.actorKey, payload.limit ?? 50, payload.skip ?? 0)
+      case 'my-commitments': return this.storage.myCommitments(payload.actorKey, payload.limit ?? 50, payload.skip ?? 0)
+      case 'flow-by-order': return this.storage.flowByOrderTxid(payload.txid)
+      case 'flow-by-commitment': return this.storage.flowByCommitmentTxid(payload.txid)
+      default: return this.storage.recentOrders(50, 0)
     }
   }
-  // --------------------------------------------------------------------------------
-
-  // ---------- docs/metadata ----------
 
   async getDocumentation() { return docs }
   async getMetaData() {
     return { name: 'Cathays Energy Lookup', shortDescription: 'query energy transactions for cardiff – cathays' }
-  }
-
-  // ---------- helpers ----------
-
-  private safeParseInput(input: unknown): QueryInput | null {
-    try {
-      if (!input) return null
-      if (typeof input === 'string') return JSON.parse(input)
-      if (typeof input === 'object') return input as QueryInput
-      return null
-    } catch {
-      return null
-    }
   }
 }

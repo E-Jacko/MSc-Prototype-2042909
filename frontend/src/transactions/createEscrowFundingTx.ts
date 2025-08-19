@@ -1,13 +1,8 @@
-// Creates the *funding* transaction for an energy escrow.
-// vout0: PushDrop document describing the contract
-// vout1: OP_RETURN “contract” note (compact) that the lookup service indexes
-
 import { WalletClient, Transaction, PushDrop } from '@bsv/sdk'
-import {
-  toPushDropFieldsOrdered,
-  buildTermsHash,
-  buildContractOpReturn
-} from './utils'
+import { toPushDropFieldsOrdered, buildTermsHash } from './utils'
+
+// PushDrop protocol tag
+const PROTOCOL_ID: [0, string] = [0, 'energy']
 
 export type EscrowFundingParams = {
   buyerPubKey: string
@@ -16,69 +11,63 @@ export type EscrowFundingParams = {
   quantityKWh: number
   windowStartISO: string
   windowEndISO: string
+  termsHash: string
+  amountSats: number
   topic: string
   commitmentTxid: string
   price: number
   currency: 'GBP' | 'SATS'
-  amountSats: number
 }
 
-const PROTOCOL_ID: [0, string] = [0, 'energy']
-
-export async function createEscrowFundingTx(params: EscrowFundingParams) {
+export async function createEscrowFundingTx(p: EscrowFundingParams): Promise<Transaction> {
+  // PushDrop metadata beside the contract so the overlay can index it
   const wallet = new WalletClient('auto', 'localhost')
-
-  // Derive a stable “terms” hash to bind contract semantics
-  const termsHash = await buildTermsHash({
-    orderTxid: null,
-    commitTxid: params.commitmentTxid,
-    topic: params.topic,
-    quantityKWh: params.quantityKWh,
-    price: params.price,
-    currency: params.currency,
-    windowStart: params.windowStartISO,
-    windowEnd: params.windowEndISO,
-    meterPubKey: params.meterPubKey
-  })
-
-  // vout0: PushDrop contract record (human/overlay readable)
   const pd = new PushDrop(wallet, 'localhost')
-  const contractDoc = toPushDropFieldsOrdered({
-    kind: 'contract',
-    topic: params.topic,
-    buyer: params.buyerPubKey,
-    seller: params.sellerPubKey,
-    meter: params.meterPubKey,
-    quantityKWh: String(params.quantityKWh),
-    windowStart: params.windowStartISO,
-    windowEnd: params.windowEndISO,
-    price: String(params.price),
-    currency: params.currency,
-    parent: params.commitmentTxid,
-    termsHash
-  })
-  const contractLocking = await pd.lock(
-    contractDoc,
-    PROTOCOL_ID,
-    'default',
-    'self',
-    false,
-    true,
-    'before'
-  )
 
-  // vout1: compact indexable “contract” note for the lookup service
-  const contractNote = buildContractOpReturn({
-    kind: 'contract',
-    parent: params.commitmentTxid,
-    topic: params.topic,
-    sha256: termsHash
+  const fields = toPushDropFieldsOrdered({
+    type: 'contract',
+    topic: p.topic,
+    actor: p.sellerPubKey,        // who posts the contract (best-effort)
+    parent: p.commitmentTxid,     // link to commitment
+    createdAt: new Date().toISOString(),
+    expiresAt: '',                // optional
+    quantity: p.quantityKWh,
+    price: p.price,
+    currency: p.currency,
+    termsHash: p.termsHash        // bind to window + parties + meter
   })
+
+  const lockingScript = await pd.lock(fields, PROTOCOL_ID, 'default', 'self', false, true, 'before')
 
   const tx = new Transaction()
-  tx.addOutput({ satoshis: 1, lockingScript: contractLocking }) // vout0
-  tx.addOutput({ satoshis: 1, lockingScript: contractNote })    // vout1  ⬅️ 1 sat (not 0)
-  tx.updateMetadata({ topic: params.topic, type: 'contract' })
+  // NOTE: Replace this 1-sat PD output with your real escrow output when you wire sCrypt.
+  tx.addOutput({ satoshis: 1, lockingScript })
 
+  tx.updateMetadata({ topic: p.topic, type: 'contract' })
   return tx
+}
+
+// convenience to compute termsHash consistently
+export async function computeTermsHash(args: {
+  orderTxid: string | null
+  commitTxid: string
+  topic: string
+  quantityKWh: number
+  price: number
+  currency: 'GBP' | 'SATS'
+  windowStartISO: string
+  windowEndISO: string
+  meterPubKey: string
+}) {
+  return buildTermsHash({
+    orderTxid: args.orderTxid,
+    commitTxid: args.commitTxid,
+    topic: args.topic,
+    quantityKWh: args.quantityKWh,
+    price: args.price,
+    currency: args.currency,
+    windowStart: args.windowStartISO,
+    windowEnd: args.windowEndISO,
+    meterPubKey: args.meterPubKey
+  })
 }

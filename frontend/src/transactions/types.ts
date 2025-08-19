@@ -1,48 +1,32 @@
-// simple, shared types and constants for ALL energy transactions
-// every tx (offer, demand, commitment, contract, proof) uses the same 9 pushdrop fields
+export type OverlayLabel =
+  | 'Cardiff – Cathays'
+  | string
 
-export type TxType = 'offer' | 'demand' | 'commitment' | 'contract' | 'proof'
-export type Currency = 'GBP' | 'SATS'
-
-// ui label -> topic on-chain
-export const OVERLAY_MAP: Record<string, { topic: string }> = {
-  'Cardiff – Cathays': { topic: 'tm_cathays' }
+export function topicForOverlay(label?: OverlayLabel | null): string | null {
+  if (!label) return null
+  if (label === 'Cardiff – Cathays') return 'tm_cathays'
+  return null
 }
 
-// generic order/commitment/proof form shape
-export interface TxForm {
-  type: TxType
+export type TxForm = {
+  type: 'offer' | 'demand' | 'commitment'
+  overlay: OverlayLabel
+  parent?: string | null
+  expiryDate: string
   quantity: number
   price: number
-  currency: Currency
-  expiryDate: string
-  overlay: string
-  parent?: string
+  currency: 'GBP' | 'SATS'
 }
 
-// pushdrop field order (single source of truth)
+// the canonical field order for our PushDrop payloads
 export const FIELD_ORDER = [
-  'type', 'topic', 'actor', 'parent', 'createdAt', 'expiresAt',
-  'quantity', 'price', 'currency'
+  'type',       // index 0
+  'topic',      // index 1
+  'actor',
+  'parent',
+  'createdAt',
+  'expiresAt',
+  'quantity',
+  'price',
+  'currency'
 ] as const
-
-// ---- escrow types ----
-
-export type FundingMode = 'dummy' | 'calculated'
-
-export interface EscrowParams {
-  buyerPubKey: string
-  sellerPubKey: string
-  meterPubKey: string
-  quantityKWh: number
-  price: number
-  currency: 'SATS' | 'GBP'
-  windowStart: string  // ISO
-  windowEnd: string    // ISO
-  timeout: string      // ISO
-  termsHash: string
-  amountSats: number   // 1 for demo
-  topic: string
-  commitmentTxid: string
-  contractTxid?: string
-}

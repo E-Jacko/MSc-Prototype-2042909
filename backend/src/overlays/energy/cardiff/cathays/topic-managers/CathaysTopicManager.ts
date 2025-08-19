@@ -1,11 +1,10 @@
-// Admit outputs that match our topic and supported types.
-// No fixed field count; we just check fields[0] (type) and fields[1] (topic).
+// Admit outputs that are PushDrop and match our known type + topic.
 
 import { AdmittanceInstructions, TopicManager } from '@bsv/overlay'
 import { Transaction, PushDrop, Utils } from '@bsv/sdk'
 import docs from './CathaysTopicDocs.md.js'
 
-const SUPPORTED = ['offer', 'demand', 'commitment', 'contract', 'proof']
+const SUPPORTED = ['offer', 'demand', 'commitment', 'contract', 'proof'] as const
 const TOPIC = 'tm_cathays'
 
 export default class CathaysTopicManager implements TopicManager {
@@ -15,10 +14,13 @@ export default class CathaysTopicManager implements TopicManager {
       const tx = Transaction.fromBEEF(beef)
       for (const [vout, out] of tx.outputs.entries()) {
         try {
-          const decoded = PushDrop.decode(out.lockingScript)
-          const fields = decoded.fields.map(Utils.toUTF8)
-          const [type, topic] = [fields[0], fields[1]]
-          if (SUPPORTED.includes(type) && topic === TOPIC) outputsToAdmit.push(vout)
+          const { fields } = PushDrop.decode(out.lockingScript)
+          const s = fields.map(Utils.toUTF8)
+          const type = s[0]
+          const topic = s[1]
+          if (SUPPORTED.includes(type as any) && topic === TOPIC) {
+            outputsToAdmit.push(vout)
+          }
         } catch {}
       }
     } catch {}
