@@ -1,11 +1,8 @@
-// small helpers shared by tx builders
-
 import { Utils, OP, LockingScript } from '@bsv/sdk'
 import { FIELD_ORDER } from './types'
 
 // --- dev meter key ----------------------------------------------------------
-// note: this is a temporary key used to prefill the "meter public key" field.
-// when you wire certificates, replace the function below to fetch from a cert.
+// temporary key used to prefill the "meter public key" field for demos
 export const DEV_METER_PUBKEY =
   '0279be667ef9dcbbac55a06295ce870b07029bfcd2dce28d959f2815b16f81798'
 
@@ -32,7 +29,8 @@ export function isoToLocalMinute(iso?: string): string {
   return d.toISOString().slice(0, 16)
 }
 
-// encode fields for PushDrop in one canonical order
+// encode fields for PushDrop in one canonical order (first 9 keys).
+// (Proof appends extras itself; other tx types are unchanged.)
 export function toPushDropFieldsOrdered(obj: Record<string, string | number>): number[][] {
   return (FIELD_ORDER as readonly string[]).map(k =>
     Utils.toArray(String(obj[k] ?? ''), 'utf8') as number[]
@@ -73,11 +71,9 @@ export async function buildTermsHash(args: {
   return sha256Hex(canon)
 }
 
-// --- OP_RETURN helper -------------------------------------------------------
-// Build a single-chunk OP_RETURN that contains a UTF-8 JSON note.
+// --- OP_RETURN helper (still available if needed) ---------------------------
 export function buildOpReturnJson(note: Record<string, unknown>): LockingScript {
   const json = JSON.stringify(note)
   const bytes = Utils.toArray(json, 'utf8') as number[]
-  // one chunk: OP_RETURN + unformatted data (SDK will write raw after OP_RETURN)
   return new LockingScript([{ op: OP.OP_RETURN, data: bytes }])
 }

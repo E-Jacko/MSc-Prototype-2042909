@@ -1,5 +1,5 @@
-// simple details modal shown when a tile is clicked
-// now supports: "Create Contract" on commitments and "Send Meter Proof" on contracts
+// Simple details modal. Minimal change: when doc.kind === 'proof',
+// also show SHA-256, Cipher (preview), and Meter key.
 
 import { useCallback, useEffect } from 'react'
 import type { TxDoc } from './HistoryApi'
@@ -7,9 +7,9 @@ import type { TxDoc } from './HistoryApi'
 type Props = {
   doc: TxDoc
   onClose: () => void
-  canCreateContract?: boolean          // enable the create button for matching commitments
-  onCreateContract?: () => void        // called when user presses Create Contract
-  onSendProof?: () => void             // shown on contract docs if provided
+  canCreateContract?: boolean
+  onCreateContract?: () => void
+  onSendProof?: () => void
 }
 
 const woc = (txid: string) => `https://whatsonchain.com/tx/${txid}`
@@ -40,14 +40,15 @@ export default function HistoryModal({
         : undefined
 
   const stop = (e: React.MouseEvent) => e.stopPropagation()
-
-  // footer buttons — choose based on doc kind
   const showCreateBtn = doc.kind === 'commitment' && !!canCreateContract && !!onCreateContract
   const showSendProofBtn = doc.kind === 'contract' && !!onSendProof
 
+  const cipherPreview =
+    doc.cipher && doc.cipher.length > 120 ? `${doc.cipher.slice(0, 120)}…` : (doc.cipher ?? '')
+
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'grid', placeItems: 'center', zIndex: 9999 }}>
-      <div onClick={stop} style={{ background: '#fff', color: '#000', padding: '1.5rem 2rem', borderRadius: 12, width: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}>
+      <div onClick={stop} style={{ background: '#fff', color: '#000', padding: '1.5rem 2rem', borderRadius: 12, width: 560, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}>
         <h3 style={{ marginTop: 0, textAlign: 'center' }}>{title}</h3>
 
         <div style={{ display: 'grid', rowGap: 6 }}>
@@ -57,6 +58,28 @@ export default function HistoryModal({
           {doc.expiryISO && <p><strong>Expiry:</strong> {new Date(doc.expiryISO).toLocaleString()}</p>}
           {doc.quantity != null && <p><strong>Quantity:</strong> {doc.quantity} kWh</p>}
           {priceTxt && <p><strong>Price:</strong> {priceTxt}</p>}
+
+          {/* Proof extras */}
+          {doc.kind === 'proof' && (
+            <>
+              {doc.sha256 && (
+                <p style={{ wordBreak: 'break-all' }}>
+                  <strong>SHA-256:</strong> {doc.sha256}
+                </p>
+              )}
+              {doc.meterKey && (
+                <p style={{ wordBreak: 'break-all' }}>
+                  <strong>Meter key:</strong> {doc.meterKey}
+                </p>
+              )}
+              {doc.cipher && (
+                <p style={{ wordBreak: 'break-all' }}>
+                  <strong>Cipher:</strong> {cipherPreview}
+                </p>
+              )}
+            </>
+          )}
+
           {doc.parentTxid && (
             <p><strong>Parent:</strong>{' '}
               <a href={woc(doc.parentTxid)} target="_blank" rel="noreferrer" style={{ color: '#0b69ff', wordBreak: 'break-all' }}>
@@ -72,7 +95,6 @@ export default function HistoryModal({
           </p>
         </div>
 
-        {/* footer buttons */}
         <div style={{ display: 'flex', justifyContent: showCreateBtn || showSendProofBtn ? 'space-between' : 'center', marginTop: 16, gap: 8 }}>
           {showCreateBtn && (
             <button

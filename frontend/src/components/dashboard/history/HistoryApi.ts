@@ -1,5 +1,5 @@
-// fetch + shape helpers for the history tab
-// change: expand each head (order/commitment) into its full flow via custom lookups
+// Fetch + shape helpers for the history tab.
+// Minimal change: surface proof extras (sha256, cipher, meterKey) when present.
 
 import { Transaction, PushDrop, Utils } from '@bsv/sdk'
 
@@ -17,6 +17,10 @@ export type TxDoc = {
   currency?: 'GBP' | 'SATS'
   parentTxid?: string | null
   flowId: string
+  // proof extras (only set for kind === 'proof')
+  sha256?: string
+  cipher?: string
+  meterKey?: string
 }
 
 export type FlowRow = {
@@ -56,7 +60,16 @@ function buildDoc(text: string[], txid: string): TxDoc | null {
   const kind = kindRaw
   const flowId = (kind === 'offer' || kind === 'demand') ? txid : (parent ?? txid)
 
-  return { txid, kind, topic, actorKey, createdISO, expiryISO, quantity, price, currency, parentTxid: parent, flowId }
+  // proof extras (safe to access even if empty)
+  const sha256 = text[9] || undefined
+  const cipher = text[10] || undefined
+  const meterKey = text[11] || undefined
+
+  return {
+    txid, kind, topic, actorKey, createdISO, expiryISO,
+    quantity, price, currency, parentTxid: parent, flowId,
+    ...(kind === 'proof' ? { sha256, cipher, meterKey } : {})
+  }
 }
 
 function decodeDoc(row: LookupOutput): TxDoc | null {
@@ -75,13 +88,11 @@ function decodeDoc(row: LookupOutput): TxDoc | null {
       }
     }
 
-    // prefer the provided outputIndex
     if (row.outputIndex != null) {
       const d = tryAt(row.outputIndex)
       if (d) return d
     }
 
-    // try output 0, then scan the rest (commitments are often at vout 1)
     const d0 = tryAt(0)
     if (d0) return d0
 
@@ -89,7 +100,6 @@ function decodeDoc(row: LookupOutput): TxDoc | null {
       const d = tryAt(i)
       if (d) return d
     }
-
     return null
   } catch {
     return null
@@ -151,12 +161,10 @@ export async function fetchFlows(params: {
 }): Promise<FlowRow[]> {
   const { apiBase, mode, actorKey, limit = 50, sort = 'recent' } = params
 
-  // step 1: fetch recent heads (orders + sometimes commitments)
   const recent = await postLookup(apiBase, { kind: 'recent', limit })
   const recentOuts: LookupOutput[] = Array.isArray(recent?.outputs) ? recent.outputs : []
   const heads = recentOuts.map(decodeDoc).filter(Boolean) as TxDoc[]
 
-  // step 2: expand each head into a full flow using the *flow-by-* queries
   const flowMap = new Map<string, FlowRow>() // de-dup by flowId
   for (const h of heads) {
     const expanded =
@@ -166,7 +174,6 @@ export async function fetchFlows(params: {
           ? await expandByCommitment(apiBase, h.txid)
           : { latestISO: h.createdISO } as FlowRow
 
-    // pick a stable flow key: order txid if present, else commitment parent/txid
     const key =
       expanded.order?.txid ??
       expanded.commitment?.flowId ??
@@ -175,7 +182,6 @@ export async function fetchFlows(params: {
     const prev = flowMap.get(key)
     if (!prev) flowMap.set(key, expanded)
     else {
-      // keep the most complete + newest
       const newer = new Date(expanded.latestISO) > new Date(prev.latestISO) ? expanded : prev
       flowMap.set(key, newer)
     }
@@ -183,14 +189,12 @@ export async function fetchFlows(params: {
 
   let rows = Array.from(flowMap.values())
 
-  // step 3: apply filter
   if (mode === 'my-orders' && actorKey) {
     rows = rows.filter(r => r.order && r.order.actorKey === actorKey)
   } else if (mode === 'my-commitments' && actorKey) {
     rows = rows.filter(r => r.commitment && r.commitment.actorKey === actorKey)
   }
 
-  // step 4: sort
   rows.sort((a, b) =>
     sort === 'recent'
       ? new Date(b.latestISO).getTime() - new Date(a.latestISO).getTime()

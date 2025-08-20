@@ -20,27 +20,26 @@ export type EscrowFundingParams = {
 }
 
 export async function createEscrowFundingTx(p: EscrowFundingParams): Promise<Transaction> {
-  // PushDrop metadata beside the contract so the overlay can index it
   const wallet = new WalletClient('auto', 'localhost')
   const pd = new PushDrop(wallet, 'localhost')
 
   const fields = toPushDropFieldsOrdered({
     type: 'contract',
     topic: p.topic,
-    actor: p.sellerPubKey,        // who posts the contract (best-effort)
-    parent: p.commitmentTxid,     // link to commitment
+    actor: p.sellerPubKey,       // who posts the contract (best-effort)
+    parent: p.commitmentTxid,    // link to commitment
     createdAt: new Date().toISOString(),
-    expiresAt: '',                // optional
+    expiresAt: p.windowEndISO,   // **set contract expiry to window end**
     quantity: p.quantityKWh,
     price: p.price,
     currency: p.currency,
-    termsHash: p.termsHash        // bind to window + parties + meter
+    termsHash: p.termsHash       // bind to window + parties + meter
   })
 
   const lockingScript = await pd.lock(fields, PROTOCOL_ID, 'default', 'self', false, true, 'before')
 
   const tx = new Transaction()
-  // NOTE: Replace this 1-sat PD output with your real escrow output when you wire sCrypt.
+  // NOTE: Replace this 1-sat PD output with your real escrow locking output once sCrypt is wired.
   tx.addOutput({ satoshis: 1, lockingScript })
 
   tx.updateMetadata({ topic: p.topic, type: 'contract' })
