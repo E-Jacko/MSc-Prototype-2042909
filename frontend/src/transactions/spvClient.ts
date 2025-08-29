@@ -15,6 +15,9 @@ export type SpvStatus = {
 const OVERLAY_API: string =
   (import.meta as any)?.env?.VITE_OVERLAY_API ?? 'http://localhost:8080'
 
+// WOC base (mainnet). If you use testnet, swap to /test.
+const WOC_BASE = 'https://api.whatsonchain.com/v1/bsv/main'
+
 type AnyJson = Record<string, any>
 
 // ---------- small helpers ----------
@@ -117,9 +120,14 @@ function extractBeefContainer(data: AnyJson): { beefLike?: string | number[]; pa
   return { beefLike, parentTxid, status }
 }
 
+// NEW: narrow arbitrary strings to our parent union
+function isParentTag(x: any): x is 'match' | 'mismatch' | 'unknown' {
+  return x === 'match' || x === 'mismatch' || x === 'unknown'
+}
+
 function normalizeHydrateResponse(
   data: AnyJson,
-  requestedTxid: string,
+  _requestedTxid: string,              // underscore -> silence TS "never read"
   requestedParent?: string
 ): SpvStatus {
   const { beefLike, parentTxid: returnedParent, status } = extractBeefContainer(data)
@@ -130,7 +138,7 @@ function normalizeHydrateResponse(
 
   // Parent reconciliation
   let parent: SpvStatus['parent'] = 'unknown'
-  if (typeof status?.parent === 'string' && ['match', 'mismatch', 'unknown'].includes(status.parent)) {
+  if (isParentTag(status?.parent)) {
     parent = status.parent
   } else if (returnedParent && requestedParent) {
     parent = returnedParent === requestedParent ? 'match' : 'mismatch'
@@ -160,6 +168,21 @@ function normalizeHydrateResponse(
   return { state: 'error', parent, cached: false, updated: false, message: errMsg }
 }
 
+/* ---------- extra: client-side parent check via WOC ---------- */
+
+async function parentTagFromWoc(childTxid: string, declaredParentTxid: string): Promise<'match' | 'mismatch' | 'unknown'> {
+  try {
+    const res = await fetch(`${WOC_BASE}/tx/${childTxid}`)
+    if (!res.ok) return 'unknown'
+    const j = await res.json() as { vin?: Array<{ txid?: string }> }
+    const vins = (j.vin ?? []).map(v => String(v.txid ?? '').toLowerCase())
+    if (vins.length === 0) return 'unknown'
+    return vins.includes(declaredParentTxid.toLowerCase()) ? 'match' : 'mismatch'
+  } catch {
+    return 'unknown'
+  }
+}
+
 // ---------- public API ----------
 export async function checkSpv(txid: string, parentTxid?: string): Promise<SpvStatus> {
   try {
@@ -183,7 +206,15 @@ export async function checkSpv(txid: string, parentTxid?: string): Promise<SpvSt
     }
 
     const data = (await res.json()) as AnyJson
-    return normalizeHydrateResponse(data, txid, parentTxid)
+    let status = normalizeHydrateResponse(data, txid, parentTxid)
+
+    // If backend didn't supply a parent verdict, do a tiny client-side check.
+    if (parentTxid && status.parent === 'unknown') {
+      const tag = await parentTagFromWoc(txid, parentTxid)
+      status = { ...status, parent: tag }
+    }
+
+    return status
   } catch (e: any) {
     return {
       state: 'error',

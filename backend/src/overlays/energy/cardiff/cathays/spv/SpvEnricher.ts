@@ -47,20 +47,39 @@ export default class SpvEnricher {
         }
       }
 
+      // --- NEW: figure out which vout(s) on the contract we expect the proof to spend
+      const expectedContractVouts = await this.lookupContractVouts(parentTxid)
+
       const proof = await this.woc.getTxProof(txid)
+
+      // If pending, still compute the strict parent check from the child hex
       if (typeof proof === 'number') {
-        const parent = await this.parentCheck(txid, parentTxid)
+        let parent: ParentCheck = 'unknown'
+        try {
+          const childHex = await this.woc.getTxHex(txid)
+          parent = this.parentCheckFromHex(childHex, parentTxid, expectedContractVouts)
+        } catch { /* keep unknown */ }
+
         await this.cacheSpv(txid, { state: 'pending', parent })
         return { state: 'pending', parent, cached: false, updated: false, message: `WOC proof(${proof})` }
       }
+
       const header = await this.woc.getBlockHeaderByHash(proof.blockhash)
       if (!header?.height || !header?.merkleroot) {
-        const parent = await this.parentCheck(txid, parentTxid)
+        let parent: ParentCheck = 'unknown'
+        try {
+          const childHex = await this.woc.getTxHex(txid)
+          parent = this.parentCheckFromHex(childHex, parentTxid, expectedContractVouts)
+        } catch { /* keep unknown */ }
+
         await this.cacheSpv(txid, { state: 'invalid', parent })
         return { state: 'invalid', parent, cached: false, updated: false, message: 'Header missing height/merkleroot' }
       }
 
+      // Confirmed: build BEEF & compute strict parent check (txid+vout set)
       const txHex = await this.woc.getTxHex(txid)
+      const parent = this.parentCheckFromHex(txHex, parentTxid, expectedContractVouts)
+
       const bump = this.buildBumpFromWoc(txid, proof, header)
       const tx = Transaction.fromHex(txHex)
       ;(tx as any).merklePath = bump
@@ -69,7 +88,6 @@ export default class SpvEnricher {
       beef.mergeTransaction(tx)
       const beefBuf = beef.toBinary()
 
-      const parent = await this.parentCheck(txid, parentTxid)
       const branchLen = Array.isArray((proof as any).merkle) ? (proof as any).merkle.length : 0
 
       const upd = await this.records().updateOne(
@@ -111,14 +129,82 @@ export default class SpvEnricher {
     await this.records().updateOne({ txid }, { $set })
   }
 
-  private async parentCheck(txid: string, parentTxid?: string): Promise<ParentCheck> {
-    if (!parentTxid) return 'unknown'
+  /**
+   * Return all overlay-recorded vouts for the given contract tx.
+   * We prefer rows where fields[0] === 'contract', but will include any rows for that txid
+   * (defensive for multi-output contracts).
+   */
+  private async lookupContractVouts(parentTxid?: string): Promise<number[]> {
+    if (!parentTxid) return []
+    const out: number[] = []
+
+    // Prefer explicit 'contract' rows
+    const cur1 = this.records().find(
+      { txid: parentTxid, 'fields.0': 'contract' },
+      { projection: { outputIndex: 1 } }
+    )
+    for await (const doc of cur1) {
+      if (typeof doc?.outputIndex === 'number') out.push(doc.outputIndex)
+    }
+
+    // If none found (or to catch multiple overlay outputs), include any rows for this txid
+    if (out.length === 0) {
+      const cur2 = this.records().find(
+        { txid: parentTxid },
+        { projection: { outputIndex: 1 } }
+      )
+      for await (const doc of cur2) {
+        if (typeof doc?.outputIndex === 'number') out.push(doc.outputIndex)
+      }
+    }
+
+    // de-dupe & sort for stability
+    return Array.from(new Set(out)).sort((a, b) => a - b)
+  }
+
+  /**
+   * Strict parent check using only data we already fetch/store:
+   * - Parse child (proof) tx inputs from raw hex
+   * - Compare against (parentTxid, expectedVouts[])
+   * Rules:
+   *   - If expectedVouts has N entries, require at least min(N, 2) matches.
+   *     (If your contract always has exactly two spendable outputs, this enforces "both".)
+   *   - If we have no vout info, fall back to txid-only.
+   */
+  private parentCheckFromHex(childTxHex: string, declaredParentTxid?: string, expectedVouts: number[] = []): ParentCheck {
+    if (!declaredParentTxid) return 'unknown'
     try {
-      const res = await fetch(`https://api.whatsonchain.com/v1/bsv/main/tx/${txid}`)
-      if (!res.ok) return 'unknown'
-      const tx = await res.json() as { vin?: Array<{ txid: string }> }
-      return (tx.vin ?? []).some(v => v.txid?.toLowerCase() === parentTxid.toLowerCase()) ? 'match' : 'mismatch'
-    } catch { return 'unknown' }
+      const child = Transaction.fromHex(childTxHex)
+      const wantTxid = declaredParentTxid.toLowerCase()
+
+      // No vout info → txid-only match (legacy behavior)
+      if (expectedVouts.length === 0) {
+        const okTxid = child.inputs.some(
+          i => typeof i.sourceTXID === 'string' && i.sourceTXID.toLowerCase() === wantTxid
+        )
+        return okTxid ? 'match' : 'mismatch'
+      }
+
+      // With vout list → count exact outpoint matches
+      const voutSet = new Set(expectedVouts)
+      let matches = 0
+      for (const i of child.inputs) {
+        if (
+          typeof i.sourceTXID === 'string' &&
+          i.sourceTXID.toLowerCase() === wantTxid &&
+          voutSet.has(i.sourceOutputIndex)
+        ) {
+          matches++
+        }
+      }
+
+      // Threshold: require both when two are modeled; otherwise require all or at least one?
+      // To mirror your note "if there's two that match...", we require at least min(2, expectedVouts.length).
+      const required = Math.min(2, expectedVouts.length)
+      return matches >= required ? 'match' : 'mismatch'
+    } catch {
+      return 'unknown'
+    }
   }
 
   private buildBumpFromWoc(txid: string, proof: Exclude<WocTxProof, number>, header: WocBlockHeader) {

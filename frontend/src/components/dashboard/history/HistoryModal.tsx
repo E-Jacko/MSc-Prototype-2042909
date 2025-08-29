@@ -33,11 +33,18 @@ export default function HistoryModal({ doc, onClose, canCreateContract, onCreate
 
   const cipherPreview = doc.cipher && doc.cipher.length > 120 ? `${doc.cipher.slice(0, 120)}…` : (doc.cipher ?? '')
 
-  function trafficColor(s: SpvStatus | null): string | undefined {
+  // status dot colors
+  function spvDotColor(s: SpvStatus | null): string | undefined {
     if (!s) return undefined
-    if (s.state === 'confirmed' && s.parent !== 'mismatch') return '#29c467' // green
-    if (s.state === 'invalid' || s.parent === 'mismatch') return '#ff5252'   // red
+    if (s.state === 'confirmed') return '#29c467' // green
+    if (s.state === 'invalid' || s.state === 'error') return '#ff5252' // red
     return '#ffb020' // amber
+  }
+  function parentDotColor(s: SpvStatus | null): string | undefined {
+    if (!s) return undefined
+    if (s.parent === 'match') return '#29c467'
+    if (s.parent === 'mismatch') return '#ff5252'
+    return '#9aa0a6' // unknown -> grey
   }
 
   async function onCheckSpv() {
@@ -75,18 +82,17 @@ export default function HistoryModal({ doc, onClose, canCreateContract, onCreate
         style={{
           background: '#fff',
           color: '#000',
-          padding: '1rem 1.25rem',            // tighter padding
+          padding: '1rem 1.25rem',
           borderRadius: 12,
           width: 560,
           maxWidth: '92vw',
-          maxHeight: '85vh',                  // keep the modal on screen
-          overflowY: 'auto',                  // scroll if it grows
+          // remove inner modal scrollbar
           boxShadow: '0 20px 60px rgba(0,0,0,0.35)'
         }}
       >
         <h3 style={{ margin: '0 0 8px', textAlign: 'center' }}>{title}</h3>
 
-        <div style={{ display: 'grid', rowGap: 4, lineHeight: 1.25 }}>   {/* smaller gaps */}
+        <div style={{ display: 'grid', rowGap: 4, lineHeight: 1.25 }}>
           <p><strong>Topic:</strong> {doc.topic || 'unknown'}</p>
           <p><strong>Actor key:</strong> <span style={{ wordBreak: 'break-all' }}>{doc.actorKey || 'unknown'}</span></p>
           <p><strong>Created:</strong> {new Date(doc.createdISO).toLocaleString()}</p>
@@ -117,16 +123,32 @@ export default function HistoryModal({ doc, onClose, canCreateContract, onCreate
           </p>
 
           {spv && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-              <div style={{ width: 9, height: 9, borderRadius: '50%', background: trafficColor(spv) }} />
-              <code style={{ fontSize: 12 }}>
-                {spv.state}
-                {spv.state === 'confirmed' && ` • height ${'height' in spv ? spv.height : '?'}`}
-                {spv.state === 'confirmed' && ` • branch ${'branchLen' in spv ? spv.branchLen : '?'}`}
-                {spv.parent && ` • parent ${spv.parent}`}
-                {('message' in spv && spv.message) ? ` • ${spv.message}` : ''}
-                {spv.cached ? ' • cached' : ''}
-              </code>
+            <div style={{ display: 'grid', rowGap: 6, marginTop: 6 }}>
+              {/* Line 1: SPV */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 9, height: 9, borderRadius: '50%', background: spvDotColor(spv) }} />
+                <code style={{ fontSize: 12 }}>
+                  <strong>SPV:</strong>{' '}
+                  {spv.state}
+                  {spv.state === 'confirmed' && (
+                    <>
+                      {' • height '}{'height' in spv ? spv.height : '?'}
+                      {' • branch '}{'branchLen' in spv ? spv.branchLen : '?'}
+                      {spv.cached ? ' • cached' : ''}
+                    </>
+                  )}
+                  {('message' in spv && spv.message) ? ` • ${spv.message}` : ''}
+                </code>
+              </div>
+
+              {/* Line 2: Parent */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 9, height: 9, borderRadius: '50%', background: parentDotColor(spv) }} />
+                <code style={{ fontSize: 12 }}>
+                  <strong>Parent:</strong>{' '}
+                  {spv.parent ?? 'unknown'}
+                </code>
+              </div>
             </div>
           )}
         </div>
