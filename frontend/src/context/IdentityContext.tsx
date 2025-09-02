@@ -1,4 +1,4 @@
-// React context to manage identity key globally
+// global identity context
 
 import { createContext, useContext, useEffect, useState } from 'react'
 import { getIdentityKey } from '../auth/authFetch'
@@ -8,30 +8,30 @@ interface IdentityContextType {
   connectToWallet: () => Promise<void>
 }
 
+// minimal default to allow useIdentity() before provider mounts
 const IdentityContext = createContext<IdentityContextType>({
   identityKey: null,
   connectToWallet: async () => {}
 })
 
-// Provider wraps the app and manages state + persistence
+// provider: owns identity state and persistence
 export function IdentityProvider({ children }: { children: React.ReactNode }) {
   const [identityKey, setIdentityKey] = useState<string | null>(null)
 
-  // Restore identity from localStorage on load
+  // restore from localStorage on first render
   useEffect(() => {
     const saved = localStorage.getItem('identityKey')
-    if (saved) {
-      setIdentityKey(saved)
-    }
+    if (saved) setIdentityKey(saved)
   }, [])
 
-  // Connect to wallet and get identity key
+  // connect to wallet and fetch public identity key
   const connectToWallet = async () => {
     const key = await getIdentityKey()
-    setIdentityKey(key)
-    localStorage.setItem('identityKey', key)
+    setIdentityKey(key) // update runtime state
+    localStorage.setItem('identityKey', key) // persist public identifier
   }
 
+  // expose value to descendants
   return (
     <IdentityContext.Provider value={{ identityKey, connectToWallet }}>
       {children}
@@ -39,7 +39,7 @@ export function IdentityProvider({ children }: { children: React.ReactNode }) {
   )
 }
 
-// Access the context in any component
+// hook for consuming components
 export function useIdentity() {
   return useContext(IdentityContext)
 }

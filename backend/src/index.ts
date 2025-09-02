@@ -103,7 +103,7 @@ async function main() {
         throw new Error(`unknown service '${service}' or service has no lookup()`);
       }
 
-      // Make a best-effort to be backward compatible with callers that forgot 'kind'
+      // Try to be backward compatible with callers that forgot 'kind'
       const q = query && typeof query === "object" ? query : {};
       const result = await svc.lookup(q);
 
