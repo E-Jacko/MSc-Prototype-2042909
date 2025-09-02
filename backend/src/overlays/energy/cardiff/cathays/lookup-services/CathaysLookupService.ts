@@ -11,23 +11,19 @@ import { PushDrop, Utils, LockingScript, OP } from '@bsv/sdk'
 import { CathaysStorage } from '../storage/CathaysStorage'
 import docs from '../topic-managers/CathaysTopicDocs.md.js'
 
-/**
- * Supported Cathays record kinds surfaced by the overlay.
- */
+// supported record kinds for this overlay
 const SUPPORTED = ['offer', 'demand', 'commitment', 'contract', 'proof'] as const
 type SupportedType = (typeof SUPPORTED)[number]
 const TOPIC = 'tm_cathays'
 
+// simple type guard for supported kinds
 function isSupported(x: string): x is SupportedType {
   return (SUPPORTED as readonly string[]).includes(x)
 }
 
-// ---------------- OP_RETURN JSON helper ----------------
+// ---------- OP_RETURN JSON helper ----------
 
-/**
- * If first chunk is OP_RETURN and contains a JSON object, parse & return it.
- * Otherwise return null.
- */
+// parse a JSON object from an OP_RETURN-first locking script; else null
 function parseOpReturnJSON(ls: LockingScript): any | null {
   try {
     const c0 = ls.chunks[0]
@@ -40,25 +36,14 @@ function parseOpReturnJSON(ls: LockingScript): any | null {
   }
 }
 
-// ---------------- Field normalisers ----------------
+// ---------- field normalisers ----------
 
-/**
- * Storage expects a string[] "fields" array already ordered.
- * For PushDrop we already receive strings in order, so just return them.
- */
+// pushdrop strings are already ordered; return as-is for storage
 function toFieldsFromPushDrop(strings: string[]): string[] {
   return strings
 }
 
-/**
- * OP_RETURN JSON → storage "fields" layout.
- * Minimal contract:
- *   fields[0] = type
- *   fields[1] = topic
- *   fields[2] = actor or 'null'
- *   fields[3] = parent or 'null'
- * Optional extras kept for future use: sha256/boxFor/buyer/seller.
- */
+// map OP_RETURN note → shared fields[] layout (type, topic, actor, parent, extras)
 function toFieldsFromNote(note: any): string[] {
   const type   = String(note.kind ?? '')
   const topic  = String(note.topic ?? '')
@@ -72,23 +57,22 @@ function toFieldsFromNote(note: any): string[] {
   return [type, topic, actor, parent, ...extras]
 }
 
-// ---------------- Service ----------------
+// ---------- service ----------
 
 export class CathaysLookupService implements LookupService {
+  // overlay reports admissions by locking-script match
   readonly admissionMode = 'locking-script'
+  // this overlay doesn’t react to spends
   readonly spendNotificationMode = 'none'
 
   constructor(private readonly storage: CathaysStorage) {}
 
-  /**
-   * Overlay calls this when it sees an output whose locking script matches our topic.
-   * We attempt PushDrop first, then fall back to OP_RETURN JSON.
-   */
+  // handle an admitted output: decode, validate, normalise, persist
   async outputAdmittedByTopic(p: OutputAdmittedByTopic): Promise<void> {
     if (p.mode !== 'locking-script' || p.topic !== TOPIC) return
 
     try {
-      // 1) Try PushDrop
+      // try pushdrop first (primary encoding in this build)
       try {
         const { fields } = PushDrop.decode(p.lockingScript)
         const strings = fields.map(Utils.toUTF8)
@@ -96,18 +80,25 @@ export class CathaysLookupService implements LookupService {
         const topic = strings[1] ?? ''
         if (!isSupported(type) || topic !== TOPIC) return
 
+        // actor key is optional; "null" means absent
         const actorKey = strings[2] && strings[2] !== 'null' ? strings[2] : null
+
+        // route to collections by type
         if (type === 'offer' || type === 'demand') {
-          await this.storage.upsertOrder(p.txid, p.outputIndex, toFieldsFromPushDrop(strings), topic, actorKey)
+          await this.storage.upsertOrder(
+            p.txid, p.outputIndex, toFieldsFromPushDrop(strings), topic, actorKey
+          )
         } else {
-          await this.storage.upsertRecord(p.txid, p.outputIndex, toFieldsFromPushDrop(strings), topic, actorKey)
+          await this.storage.upsertRecord(
+            p.txid, p.outputIndex, toFieldsFromPushDrop(strings), topic, actorKey
+          )
         }
         return
       } catch {
-        // fall through to OP_RETURN path
+        // if pushdrop decode fails, fall through to OP_RETURN path
       }
 
-      // 2) Try OP_RETURN JSON
+      // optional OP_RETURN JSON fallback (not used/tested in this build)
       const note = parseOpReturnJSON(p.lockingScript)
       if (!note) return
 
@@ -124,30 +115,27 @@ export class CathaysLookupService implements LookupService {
         await this.storage.upsertRecord(p.txid, p.outputIndex, fields, topic, actorKey)
       }
     } catch (err) {
+      // log and continue; overlay ingestion should not crash
       console.error(`[cathays] admit failed ${p.txid}.${p.outputIndex}:`, err)
     }
   }
 
-  /**
-   * We keep history; no need to delete on spend.
-   */
+  // we keep history; no action on spends
   async outputSpent(_p: OutputSpent): Promise<void> {
     // no-op
   }
 
-  /**
-   * Optional pruning – not used for now.
-   */
+  // eviction not used for this overlay
   async outputEvicted(_txid: string, _outputIndex: number): Promise<void> {
     // no-op
   }
 
-  // ---------- custom lookup passthrough ----------
+  // custom overlay lookups used by the UI
   async lookup(q: LookupQuestion): Promise<LookupFormula> {
     if (!q || q.service !== 'ls_cathays') throw new Error('unsupported lookup service')
     const raw: any = (q as any).query ?? (q as any).input ?? null
 
-    // tolerate either object or JSON string
+    // accept object or JSON string
     const parse = (x: unknown) => {
       if (!x) return null
       if (typeof x === 'string') {
@@ -159,34 +147,30 @@ export class CathaysLookupService implements LookupService {
 
     const payload = parse(raw)
     if (!payload) {
-      // default to recent orders list (used by History tab bootstrap)
+      // default bootstrap: recent orders
       return this.storage.recentOrders(50, 0)
     }
 
+    // dispatch to storage helpers; all return {txid, outputIndex}[]
     switch (payload.kind) {
       case 'recent':
         return this.storage.recentOrders(payload.limit ?? 50, payload.skip ?? 0)
-
       case 'my-orders':
         return this.storage.myOrders(payload.actorKey, payload.limit ?? 50, payload.skip ?? 0)
-
       case 'my-commitments':
         return this.storage.myCommitments(payload.actorKey, payload.limit ?? 50, payload.skip ?? 0)
-
       case 'flow-by-order':
         return this.storage.flowByOrderTxid(payload.txid)
-
       case 'flow-by-commitment':
         return this.storage.flowByCommitmentTxid(payload.txid)
-
       default:
         // graceful fallback
         return this.storage.recentOrders(50, 0)
     }
   }
 
+  // overlay docs and metadata
   async getDocumentation() { return docs }
-
   async getMetaData() {
     return { name: 'Cathays Energy Lookup', shortDescription: 'query energy transactions for cardiff – cathays' }
   }
