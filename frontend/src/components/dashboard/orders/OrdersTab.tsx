@@ -35,14 +35,20 @@ function num(n: unknown, d = 0): number {
 }
 
 // decode beef row into ui shape (offers and demands only for this list)
+
 function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIOrder | null {
   try {
+    // reconstruct the transaction from beef
     const tx = Transaction.fromBEEF(row.beef)
+
+    // choose the output index (default 0)
     const out = tx.outputs[row.outputIndex ?? 0]
+
+    // decode pushdrop to get the ordered string fields
     const { fields } = PushDrop.decode(out.lockingScript)
     const text = fields.map((f) => Utils.toUTF8(f))
 
-    // expect shared 9-field layout
+    // read shared 9-field layout
     const type = text[0] as UIOrder['type']
     const topic = text[1] || ''
     const actor = text[2] || ''
@@ -53,8 +59,10 @@ function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIO
     const price = num(text[7])
     const currency = (text[8] === 'SATS' ? 'SATS' : 'GBP') as 'GBP' | 'SATS'
 
+    // ignore non-order records in this list
     if (!(type === 'offer' || type === 'demand')) return null
 
+    // map to the ui row used by the list + modal
     return {
       txid: tx.id('hex'),
       type,
@@ -69,9 +77,11 @@ function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIO
       parent: parent === 'null' ? null : parent
     }
   } catch {
+    // tolerate bad/unknown rows
     return null
   }
 }
+
 
 export default function OrdersTab() {
   // identity key available if you want to log who is acting
@@ -88,31 +98,44 @@ export default function OrdersTab() {
   const [overlayFilter, setOverlayFilter] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'expiry' | 'created'>('expiry')
 
-  // fetch from overlay-express
-  async function loadFromOverlay() {
-    try {
-      setLoading(true)
-      const res = await fetch(`${OVERLAY_API}/lookup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ service: 'ls_cathays', query: { limit: 50 } })
-      })
-      const body = await res.json()
-      const list: any[] = Array.isArray(body?.outputs) ? body.outputs : []
+ // fetch from overlay/express
 
-      const decoded: UIOrder[] = list
-        .map((o) => decodeOrderFromBEEF({ beef: o.beef, outputIndex: o.outputIndex ?? 0 }))
-        .filter((x: UIOrder | null): x is UIOrder => Boolean(x))
+async function loadFromOverlay() {
+  try {
+    // show a spinner while we fetch
+    setLoading(true)
 
-      setOrders(decoded)
-      setLastCount(decoded.length)
-      console.debug('[OrdersTab] loaded orders', decoded.length)
-    } catch (e) {
-      console.error('[OrdersTab] lookup failed', e)
-    } finally {
-      setLoading(false)
-    }
+    // post a lookup to the overlay (service = ls_cathays)
+    const res = await fetch(`${OVERLAY_API}/lookup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service: 'ls_cathays', query: { limit: 50 } })
+    })
+
+    // parse json body
+    const body = await res.json()
+
+    // pull the outputs array (or empty when none)
+    const list: any[] = Array.isArray(body?.outputs) ? body.outputs : []
+
+    // decode each output’s beef into a ui-friendly order row
+    const decoded: UIOrder[] = list
+      .map((o) => decodeOrderFromBEEF({ beef: o.beef, outputIndex: o.outputIndex ?? 0 }))
+      .filter((x: UIOrder | null): x is UIOrder => Boolean(x))
+
+    // update list + count in state
+    setOrders(decoded)
+    setLastCount(decoded.length)
+    console.debug('[OrdersTab] loaded orders', decoded.length)
+  } catch (e) {
+    // surface any network/parse issues to the console
+    console.error('[OrdersTab] lookup failed', e)
+  } finally {
+    // always clear the spinner
+    setLoading(false)
   }
+}
+
 
   // initial load
   useEffect(() => { void loadFromOverlay() }, [])
