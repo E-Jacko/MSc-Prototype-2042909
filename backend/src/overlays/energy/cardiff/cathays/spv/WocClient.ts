@@ -1,8 +1,8 @@
-// Minimal What's On Chain client (backend only). Uses global fetch.
+// minimal what's on chain client for backend use; relies on global fetch
 
 export type WocTxProof =
   | { blockhash: string; merkle: string[]; pos?: number } // confirmed
-  | number                                                // e.g. 404 when pending
+  | number                                                // for example 404 when pending
 
 export type WocBlockHeader = {
   hash: string

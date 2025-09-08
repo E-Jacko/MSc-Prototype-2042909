@@ -18,7 +18,7 @@ export type TxForm = {
   currency: 'GBP' | 'SATS'
 }
 
-// the canonical field order for our PushDrop payloads
+// the canonical field order for our pushdrop payloads
 export const FIELD_ORDER = [
   'type',       // index 0
   'topic',      // index 1

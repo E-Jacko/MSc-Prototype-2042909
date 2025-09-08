@@ -1,4 +1,7 @@
+// modal for viewing a decoded tx with quick spv check and flow actions
+
 import { useCallback, useEffect, useState } from 'react'
+import type React from 'react'
 import type { TxDoc } from './HistoryApi'
 import { checkSpv, type SpvStatus } from '../../../transactions/spvClient.ts'
 
@@ -13,12 +16,14 @@ type Props = {
 const woc = (txid: string) => `https://whatsonchain.com/tx/${txid}`
 
 export default function HistoryModal({ doc, onClose, canCreateContract, onCreateContract, onSendProof }: Props) {
+  // esc to close
   const esc = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
   useEffect(() => { window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc) }, [esc])
 
   const [spv, setSpv] = useState<SpvStatus | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // derive a human title from kind
   const title =
     doc.kind === 'offer' ? 'Offer' :
     doc.kind === 'demand' ? 'Demand' :
@@ -26,27 +31,30 @@ export default function HistoryModal({ doc, onClose, canCreateContract, onCreate
     doc.kind === 'contract' ? 'Contract' :
     doc.kind === 'proof' ? 'Proof' : 'Transaction'
 
+  // build price text once
   const priceTxt =
     doc.currency === 'SATS'
       ? `${doc.price ?? 0} sats/kWh`
       : doc.price != null ? `£${doc.price}/kWh` : undefined
 
+  // preview the cipher if it is long
   const cipherPreview = doc.cipher && doc.cipher.length > 120 ? `${doc.cipher.slice(0, 120)}…` : (doc.cipher ?? '')
 
   // status dot colors
   function spvDotColor(s: SpvStatus | null): string | undefined {
     if (!s) return undefined
-    if (s.state === 'confirmed') return '#29c467' // green
-    if (s.state === 'invalid' || s.state === 'error') return '#ff5252' // red
-    return '#ffb020' // amber
+    if (s.state === 'confirmed') return '#29c467'
+    if (s.state === 'invalid' || s.state === 'error') return '#ff5252'
+    return '#ffb020'
   }
   function parentDotColor(s: SpvStatus | null): string | undefined {
     if (!s) return undefined
     if (s.parent === 'match') return '#29c467'
     if (s.parent === 'mismatch') return '#ff5252'
-    return '#9aa0a6' // unknown -> grey
+    return '#9aa0a6'
   }
 
+  // call the overlay client to check spv for this tx
   async function onCheckSpv() {
     try {
       if (!doc.txid) return
@@ -60,6 +68,7 @@ export default function HistoryModal({ doc, onClose, canCreateContract, onCreate
     }
   }
 
+  // stop click from closing the modal
   const stop = (e: React.MouseEvent) => e.stopPropagation()
   const showCreateBtn = doc.kind === 'commitment' && !!canCreateContract && !!onCreateContract
   const showSendProofBtn = doc.kind === 'contract' && !!onSendProof
@@ -124,7 +133,7 @@ export default function HistoryModal({ doc, onClose, canCreateContract, onCreate
 
           {spv && (
             <div style={{ display: 'grid', rowGap: 6, marginTop: 6 }}>
-              {/* Line 1: SPV */}
+              {/* line 1: spv */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{ width: 9, height: 9, borderRadius: '50%', background: spvDotColor(spv) }} />
                 <code style={{ fontSize: 12 }}>
@@ -141,7 +150,7 @@ export default function HistoryModal({ doc, onClose, canCreateContract, onCreate
                 </code>
               </div>
 
-              {/* Line 2: Parent */}
+              {/* line 2: parent check */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{ width: 9, height: 9, borderRadius: '50%', background: parentDotColor(spv) }} />
                 <code style={{ fontSize: 12 }}>

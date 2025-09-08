@@ -8,7 +8,7 @@ export type OrderFormData = {
   price: number
   currency: 'GBP' | 'SATS'
   expiryDate: string            // 'YYYY-MM-DDTHH:MM'
-  overlay: string               // e.g. 'Cardiff – Cathays'
+  overlay: string               // for example 'Cardiff – Cathays'
 }
 
 type Props = { onSubmit: (data: OrderFormData) => void }
@@ -98,7 +98,7 @@ function CreateOrderForm({ onSubmit }: Props) {
         <input type="number" name="quantity" value={formData.quantity} onChange={handleChange} style={inputStyle} min={0}/>
       </div>
 
-      {/* price + currency toggle (row totals exactly FIELD_WIDTH) */}
+      {/* price and currency toggle row totals exactly field width */}
       <div style={fieldWrap}>
         <label style={labelStyle}>Price ({formData.currency === 'GBP' ? '£' : 'sats'} / kWh):</label>
         <div style={{ display: 'flex', gap: GAP_PX }}>

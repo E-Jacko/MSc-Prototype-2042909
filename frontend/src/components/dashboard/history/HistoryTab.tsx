@@ -1,6 +1,5 @@
-// frontend/src/components/dashboard/history/HistoryTab.tsx
-// single-column list of flows; filter + sort + refresh.
-// any tx created by the connected identity is highlighted blue.
+// single column list of flows with filter, sort, and refresh
+// any tx created by the connected identity is highlighted blue
 
 import { useEffect, useMemo, useState } from 'react'
 import { useIdentity } from '../../../context/IdentityContext'
@@ -21,6 +20,7 @@ export default function HistoryTab() {
   const [rows, setRows] = useState<FlowRow[]>([])
   const [loading, setLoading] = useState(false)
 
+  // fetch rows from the overlay using the shared api helper
   async function load() {
     setLoading(true)
     try {
@@ -40,7 +40,7 @@ export default function HistoryTab() {
     }
   }
 
-  // load on mount and whenever filter/sort or identity changes
+  // load on mount and whenever filter, sort, or identity changes
   useEffect(() => { void load() }, [filter, sort, identityKey])
 
   const title = useMemo(() => 'History', [])
@@ -48,7 +48,7 @@ export default function HistoryTab() {
 
   return (
     <div style={{ paddingTop: '2rem' }}>
-      {/* Header: centered title, then centered controls, then status below */}
+      {/* header: centered title, then centered controls, then status below */}
       <div style={{ display: 'grid', rowGap: 8 }}>
         <h2 style={{ margin: 0, textAlign: 'center' }}>{title}</h2>
 

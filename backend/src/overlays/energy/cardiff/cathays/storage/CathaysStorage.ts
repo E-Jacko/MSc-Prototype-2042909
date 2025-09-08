@@ -1,3 +1,5 @@
+// two collections: lean orders and richer records with lineage and spv cache
+
 import { Collection, Db, IndexDescription } from 'mongodb'
 import { UTXOReference } from '../../../../../types.ts'
 
@@ -22,7 +24,7 @@ export type CathaysRecordDoc = {
   actorKey: string | null
   createdAt: Date
 
-  // optional SPV cache for history/verification views
+  // optional spv cache for history views
   spv?: {
     state: 'pending' | 'confirmed' | 'invalid'
     parent?: 'match' | 'mismatch' | 'unknown'
@@ -38,7 +40,7 @@ export type CathaysRecordDoc = {
   hydrated_BEEF?: number[] | string | Buffer
   beefUpdatedAt?: Date
 
-  // legacy / optional
+  // legacy or optional
   beefFull?: number[] | string
 }
 
@@ -47,7 +49,7 @@ export class CathaysStorage {
   public readonly records: Collection<CathaysRecordDoc>
 
   constructor(db: Db) {
-    // two-collection split: lean orders vs. richer lifecycle records
+    // two-collection split: lean orders vs richer lifecycle records
     this.orders  = db.collection<CathaysOrderDoc>('cathaysEnergyOrders')
     this.records = db.collection<CathaysRecordDoc>('cathaysEnergyRecords')
   }
@@ -61,7 +63,7 @@ export class CathaysStorage {
       { key: { actorKey: 1, createdAt: -1 }, name: 'actor_time' },
     ]
 
-    // richer indexes for lineage and SPV on records
+    // richer indexes for lineage and spv on records
     const recordIdx: IndexDescription[] = [
       { key: { txid: 1, outputIndex: 1 }, unique: true, name: 'uniq' },
       { key: { createdAt: -1 }, name: 'by_time' },
@@ -86,7 +88,7 @@ export class CathaysStorage {
     topic: string,
     actorKey: string | null
   ) {
-    // single-writer upsert keyed by txid+vout; set createdAt on first insert
+    // single-writer upsert keyed by txid and vout; set createdAt on first insert
     await this.orders.updateOne(
       { txid, outputIndex },
       {
@@ -139,13 +141,13 @@ export class CathaysStorage {
       { upsert: true }
     )
 
-    // if parent existed but lacked flowId, back-fill it now
+    // if parent existed but lacked flowId, backfill it now
     if (flowId && parentTxid) {
       await this.records.updateOne({ txid: parentTxid, flowId: null }, { $set: { flowId } })
     }
   }
 
-  // lightweight SPV cache updates for history pages
+  // lightweight spv cache updates for history pages
   async updateSpvCache(txid: string, spv: CathaysRecordDoc['spv']): Promise<void> {
     if (!spv) return
     const $set: Record<string, any> = {}
@@ -156,12 +158,12 @@ export class CathaysStorage {
     await this.records.updateOne({ txid }, { $set })
   }
 
-  // optional full-beef persistence for later hydration/debug
+  // optional full-beef persistence for later hydration or debug
   async storeFullBeef(txid: string, beefFull: number[] | string): Promise<void> {
     await this.records.updateOne({ txid }, { $set: { beefFull } })
   }
 
-  // ---- small query helpers used by the Lookup Service ----
+  // small query helpers used by the lookup service
 
   async recentOrders(limit = 50, skip = 0): Promise<UTXOReference[]> {
     const docs = await this.orders

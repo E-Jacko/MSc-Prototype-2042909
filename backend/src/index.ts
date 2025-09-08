@@ -1,17 +1,15 @@
-/* eslint-disable no-console */
-
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { MongoClient } from "mongodb";
 
-// ✅ create an instance of your lookup service (not the factory itself)
+// create an instance of lookup service (not the factory itself)
 import CathaysLookupServiceFactory from "./overlays/energy/cardiff/cathays/lookup-services/CathaysLookupServiceFactory";
 
 const PORT = Number(process.env.PORT || 8080);
 const MONGO_URL = process.env.MONGO_URL || "mongodb://mongo:27017";
 const MONGO_DB = process.env.MONGO_DB || "overlay";
 
-// Map of service instances we expose via /lookup
+// map of service instances we expose via /lookup
 type LookupService = { lookup: (query: any) => Promise<any> };
 type ServiceMap = Record<string, LookupService>;
 
@@ -41,20 +39,20 @@ async function main() {
   console.log(`🌐 Server port set to ${PORT}`);
   console.log("📝 Verbose request logging enabled.");
 
-  // ---- Mongo ----------------------------------------------------------------
+  // mongo
   console.log(`🍃 Connecting to MongoDB at ${MONGO_URL} ...`);
   const mongo = new MongoClient(MONGO_URL);
   await mongo.connect();
   const db = mongo.db(MONGO_DB);
   console.log("🍃 MongoDB successfully configured and connected.");
 
-  // ---- Build service instances ----------------------------------------------
+  // build service instances
   const services: ServiceMap = {
     ls_cathays: CathaysLookupServiceFactory(db),
     // add more here if/when you need them
   };
 
-  // ---- Express ---------------------------------------------------------------
+  // express
   const app = express();
 
   app.use(
@@ -65,7 +63,7 @@ async function main() {
     })
   );
 
-  // match the headers the UI expects (and what your logs showed)
+  // match headers the ui expects
   app.use((_, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "*");
@@ -75,16 +73,17 @@ async function main() {
     next();
   });
 
+  // parse json with a conservative limit
   app.use(express.json({ limit: "2mb" }));
 
-  // Preflight
+  // preflight
   app.options("/lookup", (_req, res) => {
     console.log("📥 Incoming Request: OPTIONS /lookup");
     res.status(200).type("text/plain").send("OK");
     console.log("📤 Outgoing Response: OPTIONS /lookup - Status: 200 - Duration: ~1ms");
   });
 
-  // ✅ Simple, explicit /lookup endpoint (no Overlay Engine in the middle)
+  // simple, explicit /lookup endpoint (no overlay engine in the middle)
   app.post("/lookup", async (req: Request, res: Response) => {
     const t0 = Date.now();
     console.log("📥 Incoming Request: POST /lookup");
@@ -103,7 +102,7 @@ async function main() {
         throw new Error(`unknown service '${service}' or service has no lookup()`);
       }
 
-      // Try to be backward compatible with callers that forgot 'kind'
+      // try to be backward compatible with callers that forgot 'kind'
       const q = query && typeof query === "object" ? query : {};
       const result = await svc.lookup(q);
 
@@ -125,11 +124,12 @@ async function main() {
     }
   });
 
+  // start server
   app.listen(PORT, () => {
     console.log("🎧 LARS is ready and listening on local port", PORT);
   });
 
-  // Graceful shutdown
+  // graceful shutdown
   const shutdown = async () => {
     try {
       await mongo.close();

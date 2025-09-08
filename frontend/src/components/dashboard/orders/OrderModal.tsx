@@ -1,7 +1,8 @@
-// modal with esc/backdrop close and emoji buttons
+// modal with esc and backdrop close and emoji buttons
 // txid is clickable and opens on whatsonchain
 
 import { useEffect, useCallback } from 'react'
+import type React from 'react'
 import type { UIOrder } from './OrderItem'
 
 type Props = { order: UIOrder; onClose: () => void; onCommit: (o: UIOrder) => void }
@@ -25,7 +26,7 @@ function OrderModal({ order, onClose, onCommit }: Props) {
   // stop click bubbling
   const stop = (e: React.MouseEvent) => e.stopPropagation()
 
-  // build woc link (mainnet)
+  // build woc link for mainnet
   const wocHref = `https://whatsonchain.com/tx/${order.txid}`
 
   return (

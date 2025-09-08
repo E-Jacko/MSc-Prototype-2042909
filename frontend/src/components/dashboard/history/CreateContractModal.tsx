@@ -1,10 +1,9 @@
-// create contract modal
-// - compact header
-// - white inputs on dark modal (matching your other modals)
-// - fields: funding mode, window start + length mins, derived window end, meter pubkey
-// - no separate timeout field (timeout == window end for the prototype)
+// modal for creating a contract funding tx from an order and commitment
+// fields: funding mode, window start, length in minutes, derived window end, meter pubkey
+// timeout equals window end for the prototype
 
 import { useEffect, useMemo, useState } from 'react'
+import type React from 'react'
 import type { TxDoc } from './HistoryApi'
 
 export type FundingMode = 'dummy' | 'calculated'
@@ -34,10 +33,10 @@ const inputBase: React.CSSProperties = {
 }
 
 export default function CreateContractModal({ order, commitment, onClose, onConfirm }: Props) {
-  // reference commitment so ts doesn't warn (reserved for future validation)
+  // reference commitment so ts does not warn (reserved for future validation)
   void commitment
 
-  // initial window start = now rounded to minute
+  // initial window start equals now rounded to minute
   const nowISO = useMemo(() => {
     const d = new Date()
     d.setSeconds(0, 0)
@@ -52,7 +51,7 @@ export default function CreateContractModal({ order, commitment, onClose, onConf
     '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
   )
 
-  // derive window end from start + length
+  // derive window end from start and length
   const windowEndISO = useMemo(() => {
     const start = new Date(windowStartISO)
     const end = new Date(start.getTime() + (Number.isFinite(lengthMins) ? lengthMins : 0) * 60_000)
@@ -69,7 +68,7 @@ export default function CreateContractModal({ order, commitment, onClose, onConf
   // stop click bubbling
   const stop = (e: React.MouseEvent) => e.stopPropagation()
 
-  // display helpers
+  // compact display helpers for the header
   const headerLine = `Order: ${order.kind === 'demand' ? 'Demand' : 'Offer'} · ${order.quantity ?? 0} kWh @ ${order.currency === 'SATS' ? `${order.price} sats/kWh` : `£${order.price}/kWh`}`
 
   async function handleConfirm() {
@@ -85,7 +84,7 @@ export default function CreateContractModal({ order, commitment, onClose, onConf
     <div
       onClick={onClose}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'grid', placeItems: 'center', zIndex: 9999 }}
-      data-commitment-txid={commitment.txid}               // safe, invisible usage
+      data-commitment-txid={commitment.txid}
     >
       <div onClick={stop} style={{ background: '#fff', color: '#000', padding: '1.5rem 2rem', borderRadius: 12, width: 560, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}>
         <h3 style={{ marginTop: 0, textAlign: 'center' }}>Create Contract</h3>
@@ -106,7 +105,7 @@ export default function CreateContractModal({ order, commitment, onClose, onConf
           </select>
         </div>
 
-        {/* window start + length (row) */}
+        {/* window start and length row */}
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 10, alignItems: 'center' }}>
             <div>
@@ -131,7 +130,7 @@ export default function CreateContractModal({ order, commitment, onClose, onConf
           </div>
         </div>
 
-        {/* window end derived */}
+        {/* window end derived from inputs */}
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 13, marginBottom: 6 }}>Window end (derived)</div>
           <input value={new Date(windowEndISO).toLocaleString()} readOnly style={{ ...inputBase, background: '#eee' }} />
@@ -152,7 +151,7 @@ export default function CreateContractModal({ order, commitment, onClose, onConf
           <button
             onClick={handleConfirm}
             style={{ background: '#111', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8 }}
-            title="Create contract funding transaction"
+            title="create contract funding transaction"
           >
             ✅ Confirm
           </button>

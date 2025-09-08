@@ -1,5 +1,5 @@
-// generic transaction creator for 'offer' / 'demand' / 'commitment'
-// -> builds a 1-sat PushDrop output and tags tx metadata with { topic, type }
+// generic transaction creator for offer, demand, and commitment
+// builds a 1 sat pushdrop output and tags tx metadata with { topic, type }
 
 import { WalletClient, Transaction, PushDrop } from '@bsv/sdk'
 import { FIELD_ORDER, type TxForm, topicForOverlay } from './types'
@@ -12,6 +12,7 @@ export type CreateTxResult = {
   creatorKey: string
 }
 
+// fetch the actor key in a best effort way across wallet interfaces
 async function getCreatorKeyHex(wallet: any): Promise<string> {
   try {
     const r = await wallet.getPublicKey?.({
@@ -32,18 +33,17 @@ async function getCreatorKeyHex(wallet: any): Promise<string> {
   return ''
 }
 
-// returns (unsigned tx, creatorKey) for an offer/demand/commitment
 export async function createTx(form: TxForm): Promise<CreateTxResult> {
-  // resolve overlay topic from the selected label (defaults to cathays)
+  // resolve overlay topic from the selected label
   const topic = topicForOverlay(form.overlay) ?? 'tm_cathays'
 
-  // talk to the local wallet substrate
+  // connect to the local wallet
   const wallet = new WalletClient('auto', 'localhost')
 
-  // capture the actor/public key to embed in the payload
+  // capture the actor key to embed in the payload
   const creatorKey = await getCreatorKeyHex(wallet)
 
-  // keep indexes 0..1 as [type, topic] to match TopicManager admission rules
+  // keep indexes 0 and 1 as [type, topic] to match topic manager rules
   const payload: Record<(typeof FIELD_ORDER)[number], string | number> = {
     type: form.type,                        // [0]
     topic,                                  // [1]
@@ -56,7 +56,7 @@ export async function createTx(form: TxForm): Promise<CreateTxResult> {
     currency: form.currency
   }
 
-  // encode the payload as ordered PushDrop fields and build a 1-sat output
+  // encode the payload as ordered pushdrop fields and build a 1 sat output
   const pd = new PushDrop(wallet, 'localhost')
   const fields = toPushDropFieldsOrdered(payload)
   const lockingScript = await pd.lock(
@@ -64,18 +64,18 @@ export async function createTx(form: TxForm): Promise<CreateTxResult> {
     PROTOCOL_ID,       // protocol tag used by the wallet
     'default',         // key id
     'self',            // counterparty
-    false,             // not "forSelf" (use P2PK before PushDrop)
+    false,             // not for self
     true,              // include signature
-    'before'           // P2PK placed before PushDrop data
+    'before'           // p2pk comes before pushdrop data
   )
 
   // construct the unsigned transaction and attach a tiny output
   const tx = new Transaction()
   tx.addOutput({ satoshis: 1, lockingScript })
 
-  // tag helpful metadata so submit can find the topic without decoding
+  // tag metadata so submit can find the topic without decoding
   tx.updateMetadata({ topic, type: form.type })
 
-  // hand back the unsigned tx; the wallet will fund/sign in submitTx
+  // return the unsigned tx and the creator key
   return { unsigned: tx, creatorKey }
 }

@@ -1,4 +1,4 @@
-// orders tab with filters, sorting, decoding; dev flag allows self-commit so you can test with one funded profile
+// orders tab with filters, sorting, decoding; dev flag allows self commit so you can test with one funded profile
 
 import { useEffect, useMemo, useState } from 'react'
 import { PushDrop, Transaction, Utils } from '@bsv/sdk'
@@ -22,7 +22,7 @@ const ALLOW_SELF_COMMIT_FOR_DEV = true
 const OVERLAY_API =
   (import.meta as any)?.env?.VITE_OVERLAY_API ?? 'http://localhost:8080'
 
-// map overlay topic -> label
+// map overlay topic to label
 function topicToOverlayLabel(topic: string): string {
   if (topic === 'tm_cathays') return 'Cardiff – Cathays'
   return 'Cardiff – Cathays'
@@ -35,7 +35,6 @@ function num(n: unknown, d = 0): number {
 }
 
 // decode beef row into ui shape (offers and demands only for this list)
-
 function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIOrder | null {
   try {
     // reconstruct the transaction from beef
@@ -48,7 +47,7 @@ function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIO
     const { fields } = PushDrop.decode(out.lockingScript)
     const text = fields.map((f) => Utils.toUTF8(f))
 
-    // read shared 9-field layout
+    // read shared 9 field layout
     const type = text[0] as UIOrder['type']
     const topic = text[1] || ''
     const actor = text[2] || ''
@@ -59,10 +58,10 @@ function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIO
     const price = num(text[7])
     const currency = (text[8] === 'SATS' ? 'SATS' : 'GBP') as 'GBP' | 'SATS'
 
-    // ignore non-order records in this list
+    // ignore non order records in this list
     if (!(type === 'offer' || type === 'demand')) return null
 
-    // map to the ui row used by the list + modal
+    // map to the ui row used by the list and modal
     return {
       txid: tx.id('hex'),
       type,
@@ -77,11 +76,10 @@ function decodeOrderFromBEEF(row: { beef: number[]; outputIndex?: number }): UIO
       parent: parent === 'null' ? null : parent
     }
   } catch {
-    // tolerate bad/unknown rows
+    // tolerate bad or unknown rows
     return null
   }
 }
-
 
 export default function OrdersTab() {
   // identity key available if you want to log who is acting
@@ -98,44 +96,42 @@ export default function OrdersTab() {
   const [overlayFilter, setOverlayFilter] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'expiry' | 'created'>('expiry')
 
- // fetch from overlay/express
+  // fetch from overlay api
+  async function loadFromOverlay() {
+    try {
+      // show a spinner while we fetch
+      setLoading(true)
 
-async function loadFromOverlay() {
-  try {
-    // show a spinner while we fetch
-    setLoading(true)
+      // post a lookup to the overlay (service ls_cathays)
+      const res = await fetch(`${OVERLAY_API}/lookup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service: 'ls_cathays', query: { limit: 50 } })
+      })
 
-    // post a lookup to the overlay (service = ls_cathays)
-    const res = await fetch(`${OVERLAY_API}/lookup`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ service: 'ls_cathays', query: { limit: 50 } })
-    })
+      // parse json body
+      const body = await res.json()
 
-    // parse json body
-    const body = await res.json()
+      // pull the outputs array or empty when none
+      const list: any[] = Array.isArray(body?.outputs) ? body.outputs : []
 
-    // pull the outputs array (or empty when none)
-    const list: any[] = Array.isArray(body?.outputs) ? body.outputs : []
+      // decode each output beef into a ui friendly order row
+      const decoded: UIOrder[] = list
+        .map((o) => decodeOrderFromBEEF({ beef: o.beef, outputIndex: o.outputIndex ?? 0 }))
+        .filter((x: UIOrder | null): x is UIOrder => Boolean(x))
 
-    // decode each output’s beef into a ui-friendly order row
-    const decoded: UIOrder[] = list
-      .map((o) => decodeOrderFromBEEF({ beef: o.beef, outputIndex: o.outputIndex ?? 0 }))
-      .filter((x: UIOrder | null): x is UIOrder => Boolean(x))
-
-    // update list + count in state
-    setOrders(decoded)
-    setLastCount(decoded.length)
-    console.debug('[OrdersTab] loaded orders', decoded.length)
-  } catch (e) {
-    // surface any network/parse issues to the console
-    console.error('[OrdersTab] lookup failed', e)
-  } finally {
-    // always clear the spinner
-    setLoading(false)
+      // update list and count in state
+      setOrders(decoded)
+      setLastCount(decoded.length)
+      console.debug('[OrdersTab] loaded orders', decoded.length)
+    } catch (e) {
+      // surface any network or parse issues to the console
+      console.error('[OrdersTab] lookup failed', e)
+    } finally {
+      // always clear the spinner
+      setLoading(false)
+    }
   }
-}
-
 
   // initial load
   useEffect(() => { void loadFromOverlay() }, [])
@@ -181,6 +177,7 @@ async function loadFromOverlay() {
       const { txid } = await submitTx(unsigned)
       console.log('[OrdersTab] order broadcasted', txid)
 
+      // optimistic row so the ui updates quickly
       const optimistic: UIOrder = {
         txid,
         type: data.type,
@@ -198,14 +195,14 @@ async function loadFromOverlay() {
       setOrders(prev => [optimistic, ...prev])
       await loadFromOverlay()
     } catch (e) {
-      console.error('[OrdersTab] create/submit failed', e)
+      console.error('[OrdersTab] create or submit failed', e)
     }
   }
 
-  // build and submit a commitment using the existing createTx + submitTx
+  // build and submit a commitment using the existing createTx and submitTx
   const handleCommit = async (o: UIOrder) => {
     try {
-      // optional self-commit guard controlled by dev flag
+      // optional self commit guard controlled by dev flag
       if (!ALLOW_SELF_COMMIT_FOR_DEV && identityKey && identityKey === o.creatorKey) {
         alert('you cannot commit to your own order')
         return
@@ -228,7 +225,7 @@ async function loadFromOverlay() {
       const { unsigned } = built
       console.debug('[OrdersTab] commitment built via createTx')
 
-      // sign + broadcast via the existing submitter
+      // sign and broadcast via the existing submitter
       const { txid } = await submitTx(unsigned)
       console.log('[OrdersTab] commitment broadcasted', txid)
 
@@ -259,17 +256,17 @@ async function loadFromOverlay() {
       <div style={{ flex: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
           <h2 style={{ margin: 15, flex: 1 }}>Active Orders</h2>
-          <button onClick={() => void loadFromOverlay()} disabled={loading} title="Reload from overlay">
+          <button onClick={() => void loadFromOverlay()} disabled={loading} title="reload from overlay">
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
 
-        {/* status line right-aligned */}
+        {/* status line right aligned */}
         <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7, textAlign: 'right' }}>
           Last: loaded {lastCount} order(s)
         </div>
 
-        {/* filter + sort controls */}
+        {/* filter and sort controls */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>Type</span>

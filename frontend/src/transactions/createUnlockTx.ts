@@ -1,25 +1,25 @@
-// Build a proof tx with **one** PushDrop output.
-// Fields order (first 9 unchanged):
+// proof transaction builder with one pushdrop output
+// fields order (first 9 unchanged):
 // [0] type, [1] topic, [2] actor, [3] parent,
 // [4] createdAt, [5] expiresAt, [6] quantity, [7] price, [8] currency
-// Then append proof extras:
+// then append extras:
 // [9] sha256, [10] cipher, [11] meterKey
 
 import { WalletClient, Transaction, PushDrop, Utils } from '@bsv/sdk'
 import { submitTx } from './submitTx'
 import { toPushDropFieldsOrdered, DEV_METER_PUBKEY } from './utils'
 
-// PushDrop protocol tag
+// pushdrop protocol tag
 const PROTOCOL_ID: [0, string] = [0, 'energy']
 
 export type ProofEncrypted = {
   ciphertext: string
   sha256: string
-  boxFor: 'buyer' | 'seller' | 'both' // (left here for future use; not serialized)
+  boxFor: 'buyer' | 'seller' | 'both' // kept for future use; not serialized
 }
 
 /**
- * Build (unsigned) proof transaction with a single PushDrop output.
+ * build an unsigned proof transaction with a single pushdrop output
  */
 export async function createUnlockTx(
   source: { txid: string; vout: number },
@@ -37,15 +37,15 @@ export async function createUnlockTx(
   const wallet = new WalletClient('auto', 'localhost')
   const pd = new PushDrop(wallet, 'localhost')
 
-  // timestamps: created now, expiry = +60 mins (matches Create Contract modal behavior)
+  // timestamps: created now and expiry plus 60 minutes
   const createdISO = new Date().toISOString()
   const expiresISO = new Date(Date.now() + 60 * 60 * 1000).toISOString()
 
-  // Base 9 fields (exactly as other tx types expect)
+  // base 9 fields that other tx types expect
   const baseFields = toPushDropFieldsOrdered({
     type: 'proof',
     topic: meta.topic,
-    actor: meta.sellerKey,     // tag seller as actor (same as before)
+    actor: meta.sellerKey,     // tag seller as actor
     parent: source.txid,       // link back to contract tx
     createdAt: createdISO,
     expiresAt: expiresISO,
@@ -54,35 +54,35 @@ export async function createUnlockTx(
     currency: meta.currency
   })
 
-  // Append extras in a stable order: sha256, cipher, meterKey
+  // append extras in a stable order: sha256, cipher, and meterKey
   const extraFields: number[][] = [
     Utils.toArray(encrypted.sha256, 'utf8') as number[],
     Utils.toArray(encrypted.ciphertext, 'utf8') as number[],
-    Utils.toArray(DEV_METER_PUBKEY, 'utf8') as number[] // dev meter pubkey for visibility
+    Utils.toArray(DEV_METER_PUBKEY, 'utf8') as number[]
   ]
 
   const allFields = baseFields.concat(extraFields)
 
-  // One PushDrop output only
+  // one pushdrop output only
   const lockingScript = await pd.lock(
     allFields,
     PROTOCOL_ID,
     'default',
     'self',
-    false,   // forSelf
-    true,    // includeSignature
-    'before' // P2PK before pushdrop
+    false,   // not for self
+    true,    // include signature
+    'before' // p2pk before pushdrop
   )
 
   const tx = new Transaction()
-  tx.addOutput({ satoshis: 1, lockingScript })      // vout0: proof PushDrop
+  tx.addOutput({ satoshis: 1, lockingScript })      // vout0 is the proof pushdrop
   tx.updateMetadata({ topic: meta.topic, type: 'proof' })
 
   return tx
 }
 
 /**
- * Convenience wrapper: build -> wallet fund+sign -> submit to overlay.
+ * convenience wrapper to build, have the wallet fund and sign, then submit
  */
 export async function buildAndSubmitProof(
   source: { txid: string; vout: number },

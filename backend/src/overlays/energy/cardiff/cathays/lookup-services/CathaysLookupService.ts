@@ -1,4 +1,4 @@
-// backend/src/overlays/energy/cardiff/cathays/lookup-services/CathaysLookupService.ts
+// supported kinds are offer, demand, commitment, contract, proof. topic is fixed to tm_cathays
 
 import {
   type LookupService,
@@ -21,9 +21,9 @@ function isSupported(x: string): x is SupportedType {
   return (SUPPORTED as readonly string[]).includes(x)
 }
 
-// ---------- OP_RETURN JSON helper ----------
+// op_return json helper
 
-// parse a JSON object from an OP_RETURN-first locking script; else null
+// parse a json object from an op_return-first locking script; else null
 function parseOpReturnJSON(ls: LockingScript): any | null {
   try {
     const c0 = ls.chunks[0]
@@ -36,14 +36,14 @@ function parseOpReturnJSON(ls: LockingScript): any | null {
   }
 }
 
-// ---------- field normalisers ----------
+// field normalisers
 
 // pushdrop strings are already ordered; return as-is for storage
 function toFieldsFromPushDrop(strings: string[]): string[] {
   return strings
 }
 
-// map OP_RETURN note → shared fields[] layout (type, topic, actor, parent, extras)
+// map op_return note to the shared fields layout [type, topic, actor, parent, extras...]
 function toFieldsFromNote(note: any): string[] {
   const type   = String(note.kind ?? '')
   const topic  = String(note.topic ?? '')
@@ -57,12 +57,12 @@ function toFieldsFromNote(note: any): string[] {
   return [type, topic, actor, parent, ...extras]
 }
 
-// ---------- service ----------
+// service
 
 export class CathaysLookupService implements LookupService {
   // overlay reports admissions by locking-script match
   readonly admissionMode = 'locking-script'
-  // this overlay doesn’t react to spends
+  // this overlay does not react to spends
   readonly spendNotificationMode = 'none'
 
   constructor(private readonly storage: CathaysStorage) {}
@@ -95,10 +95,10 @@ export class CathaysLookupService implements LookupService {
         }
         return
       } catch {
-        // if pushdrop decode fails, fall through to OP_RETURN path
+        // if pushdrop decode fails, fall through to op_return path
       }
 
-      // optional OP_RETURN JSON fallback (not used/tested in this build)
+      // optional op_return json fallback (not used or tested in this build)
       const note = parseOpReturnJSON(p.lockingScript)
       if (!note) return
 
@@ -115,7 +115,7 @@ export class CathaysLookupService implements LookupService {
         await this.storage.upsertRecord(p.txid, p.outputIndex, fields, topic, actorKey)
       }
     } catch (err) {
-      // log and continue; overlay ingestion should not crash
+      // log and continue so overlay ingestion never crashes
       console.error(`[cathays] admit failed ${p.txid}.${p.outputIndex}:`, err)
     }
   }
@@ -130,12 +130,12 @@ export class CathaysLookupService implements LookupService {
     // no-op
   }
 
-  // custom overlay lookups used by the UI
+  // custom overlay lookups used by the ui
   async lookup(q: LookupQuestion): Promise<LookupFormula> {
     if (!q || q.service !== 'ls_cathays') throw new Error('unsupported lookup service')
     const raw: any = (q as any).query ?? (q as any).input ?? null
 
-    // accept object or JSON string
+    // accept object or json string
     const parse = (x: unknown) => {
       if (!x) return null
       if (typeof x === 'string') {
@@ -151,7 +151,7 @@ export class CathaysLookupService implements LookupService {
       return this.storage.recentOrders(50, 0)
     }
 
-    // dispatch to storage helpers; all return {txid, outputIndex}[]
+    // dispatch to storage helpers; all return { txid, outputIndex }[]
     switch (payload.kind) {
       case 'recent':
         return this.storage.recentOrders(payload.limit ?? 50, payload.skip ?? 0)

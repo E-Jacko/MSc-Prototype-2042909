@@ -1,48 +1,48 @@
-// submitters
-// - submitTx(unsigned): asks wallet to fund+sign, then POSTs beef bytes to the overlay
-// - submitPrebuilt(txOrBytes, topics): POSTs an exact byte array to the overlay (no wallet)
+// submit helpers
+// submitTx(unsigned): wallet funds and signs, then posts beef bytes to the overlay
+// submitPrebuilt(txOrBytes, topics): posts an exact byte array to the overlay
 
 import { WalletClient, Transaction, PushDrop, Utils } from '@bsv/sdk'
 
 const OVERLAY_API =
   (import.meta as any)?.env?.VITE_OVERLAY_API ?? 'http://localhost:8080'
 
-// pull topic from tx metadata, or decode pushdrop if metadata is missing
+// pull topic from tx metadata or decode pushdrop if metadata is missing
 function topicFromUnsigned(tx: Transaction): string {
   try {
     // fast path: prefer topic stored in tx metadata
     const metaTopic = (tx.metadata as any)?.topic
     if (typeof metaTopic === 'string' && metaTopic) return metaTopic
 
-    // fallback: decode output[0] as pushdrop and read field[1] (topic)
+    // fallback: decode output[0] as pushdrop and read field[1] as topic
     const out0 = tx.outputs[0]
     const decoded = PushDrop.decode(out0.lockingScript)
     const fields = decoded.fields.map(Utils.toUTF8)
     const topic = fields[1] // [type, topic, ...]
     if (topic) return topic
   } catch {}
-  // no topic → cannot route to overlay
+  // no topic means cannot route to overlay
   throw new Error('topic not found in tx')
 }
 
-// helper: tx -> byte array (same shape wallet returns)
+// helper to convert a Transaction to a byte array like the wallet returns
 function txToBytes(tx: Transaction): number[] {
   const hex = tx.toHex()
   return Utils.toArray(hex, 'hex') as number[]
 }
 
-// submits an unsigned tx: wallet funds+signs, then overlay receives BEEF
+// submits an unsigned tx; wallet funds and signs, then overlay receives beef
 export async function submitTx(
   unsigned: Transaction
 ): Promise<{ txid: string; beefBytes: number }> {
-  // normalise outputs for wallet.createAction (clamp to >= 1 sat)
+  // normalize outputs for wallet.createAction and clamp to at least 1 sat
   const outputs = unsigned.outputs.map(o => ({
     lockingScript: o.lockingScript.toHex(),
     satoshis: Math.max(1, Number(o.satoshis ?? 1)),
     outputDescription: 'energy overlay output',
   }))
 
-  // ask the wallet to fund and sign; it returns Atomic BEEF bytes (+ txid hint)
+  // ask the wallet to fund and sign; it returns atomic beef bytes and maybe a txid
   const wallet = new WalletClient('auto', 'localhost')
   const action: any = await wallet.createAction({
     description: 'energy overlay tx',
@@ -50,11 +50,11 @@ export async function submitTx(
     options: { acceptDelayedBroadcast: true, randomizeOutputs: false },
   })
 
-  // validate wallet response contains the BEEF payload
+  // validate wallet response contains the beef payload
   const beef: number[] = action?.tx
   if (!Array.isArray(beef)) throw new Error('wallet did not return beef bytes')
 
-  // prefer txid from wallet; derive from BEEF if absent
+  // prefer txid from wallet; derive from beef if absent
   let txid: string = action?.txid
   if (!txid) {
     try {
@@ -64,10 +64,10 @@ export async function submitTx(
     }
   }
 
-  // find the overlay topic for this tx (metadata first; decode if absent)
+  // find the overlay topic for this tx
   const topic = topicFromUnsigned(unsigned)
 
-  // post the BEEF to the overlay; x-topics tells the overlay which topic(s)
+  // post the beef to the overlay; x-topics tells the overlay which topics
   const res = await fetch(`${OVERLAY_API}/submit`, {
     method: 'POST',
     headers: {
@@ -78,7 +78,7 @@ export async function submitTx(
   })
   if (!res.ok) throw new Error(`submit failed: ${res.status}`)
 
-  // return id + payload size so the UI can show a quick status line
+  // return id and payload size for a quick status line
   return { txid, beefBytes: beef.length }
 }
 
@@ -87,12 +87,12 @@ export async function submitPrebuilt(
   txOrBytes: Transaction | number[],
   topics: string[]
 ): Promise<{ txid: string }> {
-  // accept either Transaction or raw bytes and normalise to byte array
+  // accept either Transaction or raw bytes and normalize to a byte array
   const beef: number[] = Array.isArray(txOrBytes)
     ? txOrBytes
     : txToBytes(txOrBytes)
 
-  // derive txid from bytes when possible (best-effort)
+  // derive txid from bytes when possible
   let txid = 'unknown'
   try {
     txid = Transaction.fromBEEF(beef).id('hex')

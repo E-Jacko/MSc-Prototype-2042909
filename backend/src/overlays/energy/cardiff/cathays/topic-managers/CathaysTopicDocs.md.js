@@ -1,14 +1,23 @@
-// 📁 src/overlays/energy/cardiff/cathays/topic-managers/CatheysTopicDocs.md.js
+// markdown documentation for the cathays energy overlay
+
 export default `
-# Cathays Energy Topic
+# Cathays Energy Overlay
 
-This overlay indexes energy orders in Cardiff – Cathays.
+This overlay indexes energy orders and lifecycle records in Cardiff – Cathays.
 
-| Field Index | Field Description |
-|-------------|-------------------|
-| 0           | type (must be "energy_order") |
-| 1           | location (must be "Cardiff, Cathays") |
-| 2‑7         | additional order data |
+## field order (pushdrop)
 
-Transactions must contain exactly 8 fields and match the expected type + location.
+| index | name       | notes                                 |
+|------:|------------|----------------------------------------|
+| 0     | type       | 'offer' or 'demand' or 'commitment' or 'contract' or 'proof' |
+| 1     | topic      | fixed to 'tm_cathays'                 |
+| 2     | actor      | optional actor public key, or 'null'  |
+| 3     | parent     | parent txid for linked records, or 'null' |
+| 4     | createdAt  | iso timestamp                         |
+| 5     | expiresAt  | iso timestamp                         |
+| 6     | quantity   | number (kWh)                          |
+| 7     | price      | number                                 |
+| 8     | currency   | 'GBP' or 'SATS'                       |
+| 9+    | extras     | proof extras when type is 'proof' (sha256, cipher, meterKey) |
+
 `

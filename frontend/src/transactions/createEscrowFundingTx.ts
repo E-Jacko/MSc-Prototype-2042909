@@ -1,7 +1,9 @@
+// escrow contract funding helper
+
 import { WalletClient, Transaction, PushDrop } from '@bsv/sdk'
 import { toPushDropFieldsOrdered, buildTermsHash } from './utils'
 
-// PushDrop protocol tag
+// pushdrop protocol tag
 const PROTOCOL_ID: [0, string] = [0, 'energy']
 
 export type EscrowFundingParams = {
@@ -26,27 +28,27 @@ export async function createEscrowFundingTx(p: EscrowFundingParams): Promise<Tra
   const fields = toPushDropFieldsOrdered({
     type: 'contract',
     topic: p.topic,
-    actor: p.sellerPubKey,       // who posts the contract (best-effort)
+    actor: p.sellerPubKey,       // who posts the contract
     parent: p.commitmentTxid,    // link to commitment
     createdAt: new Date().toISOString(),
-    expiresAt: p.windowEndISO,   // **set contract expiry to window end**
+    expiresAt: p.windowEndISO,   // set expiry to window end
     quantity: p.quantityKWh,
     price: p.price,
     currency: p.currency,
-    termsHash: p.termsHash       // bind to window + parties + meter
+    termsHash: p.termsHash        // binds window, parties, and meter
   })
 
   const lockingScript = await pd.lock(fields, PROTOCOL_ID, 'default', 'self', false, true, 'before')
 
   const tx = new Transaction()
-  // NOTE: Replace this 1-sat PD output with your real escrow locking output once sCrypt is wired.
+  // placeholder pushdrop output; real escrow locking output can replace this later
   tx.addOutput({ satoshis: 1, lockingScript })
 
   tx.updateMetadata({ topic: p.topic, type: 'contract' })
   return tx
 }
 
-// convenience to compute termsHash consistently
+// convenience to compute termshash consistently
 export async function computeTermsHash(args: {
   orderTxid: string | null
   commitTxid: string

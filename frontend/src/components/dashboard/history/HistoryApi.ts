@@ -1,5 +1,5 @@
-// Fetch + shape helpers for the history tab.
-// Minimal change: surface proof extras (sha256, cipher, meterKey) when present.
+// fetch and shape helpers for the history tab
+// also surfaces proof extras (sha256, cipher, meterKey) when present
 
 import { Transaction, PushDrop, Utils } from '@bsv/sdk'
 
@@ -33,6 +33,7 @@ export type FlowRow = {
 
 type LookupOutput = { beef: number[]; outputIndex?: number }
 
+// safe number parser used for pushdrop text fields
 const asNum = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(v)
   return Number.isFinite(n) ? n : undefined
@@ -42,6 +43,7 @@ const isKind = (s: unknown): s is TxKind =>
   typeof s === 'string' &&
   (s === 'offer' || s === 'demand' || s === 'commitment' || s === 'contract' || s === 'proof')
 
+// map pushdrop string list to a typed doc
 function buildDoc(text: string[], txid: string): TxDoc | null {
   const kindRaw = text[0]
   if (!isKind(kindRaw)) return null
@@ -72,6 +74,7 @@ function buildDoc(text: string[], txid: string): TxDoc | null {
   }
 }
 
+// try to decode a single beef output into a doc, scanning outputs if needed
 function decodeDoc(row: LookupOutput): TxDoc | null {
   try {
     const tx = Transaction.fromBEEF(row.beef)
@@ -106,8 +109,7 @@ function decodeDoc(row: LookupOutput): TxDoc | null {
   }
 }
 
-// -- small helpers to call the custom lookup endpoints ---------------------
-
+// small helpers to call the custom lookup endpoints
 async function postLookup(apiBase: string, query: any) {
   const res = await fetch(`${apiBase}/lookup`, {
     method: 'POST',
@@ -150,8 +152,7 @@ async function expandByCommitment(apiBase: string, txid: string): Promise<FlowRo
   return row
 }
 
-// -- main export -----------------------------------------------------------
-
+// main export: fetch recent heads then expand into flow rows
 export async function fetchFlows(params: {
   apiBase: string
   mode: 'all' | 'my-orders' | 'my-commitments'

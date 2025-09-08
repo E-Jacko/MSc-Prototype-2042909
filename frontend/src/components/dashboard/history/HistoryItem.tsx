@@ -1,5 +1,4 @@
-// frontend/src/components/dashboard/history/HistoryItem.tsx
-// rectangular card for a node; blue border/glow only when it's mine
+// rectangular card for a node; blue border and glow only when it is mine
 
 import React from 'react'
 import type { TxDoc } from './HistoryApi'
@@ -50,7 +49,7 @@ export default function HistoryItem({ label, doc, myKey, onClick }: Props) {
   const price = priceText(doc)
   const header =
     label.toLowerCase() === 'order'
-      ? (doc.kind.charAt(0).toUpperCase() + doc.kind.slice(1)) // Offer / Demand
+      ? (doc.kind.charAt(0).toUpperCase() + doc.kind.slice(1))
       : label
 
   return (
@@ -60,7 +59,7 @@ export default function HistoryItem({ label, doc, myKey, onClick }: Props) {
         {doc.quantity != null && <div><strong>Qty:</strong> {doc.quantity} kWh</div>}
         {price && <div><strong>Price:</strong> {price}</div>}
         {doc.expiryISO && <div><strong>Expiry:</strong> {new Date(doc.expiryISO).toLocaleString()}</div>}
-        {/* Actor key — shortened + ellipsis, same styling as other fields */}
+        {/* actor key - shortened with ellipsis, same styling as other fields */}
         <div style={{ wordBreak: 'break-all' }}>
           <strong>Actor:</strong> {doc.actorKey.length > 16 ? `${doc.actorKey.slice(0, 12)}…` : doc.actorKey}
         </div>

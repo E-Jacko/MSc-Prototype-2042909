@@ -1,3 +1,6 @@
+// row renderer for a single flow: order -> commitment -> contract -> proof
+// shows a simple readiness indicator between order and commitment
+
 import { useState } from 'react'
 import type { FlowRow, TxDoc } from './HistoryApi'
 import HistoryModal from './HistoryModal'
@@ -11,6 +14,7 @@ function eq<T>(a: T | null | undefined, b: T | null | undefined) {
   return a !== null && a !== undefined && b !== null && b !== undefined && a === b
 }
 
+// basic field equality check used to decide if a flow is ready to contract
 function orderAndCommitmentMatch(order?: TxDoc, commitment?: TxDoc): boolean {
   if (!order || !commitment) return false
   if (!eq(order.topic, commitment.topic)) return false
@@ -23,11 +27,13 @@ function orderAndCommitmentMatch(order?: TxDoc, commitment?: TxDoc): boolean {
   return true
 }
 
+// price convenience for tiles and modal
 function priceTxt(doc: TxDoc | undefined): string | undefined {
   if (!doc || doc.price == null || doc.currency == null) return undefined
   return doc.currency === 'SATS' ? `${doc.price} sats/kWh` : `£${doc.price}/kWh`
 }
 
+// small tile used for each node in the flow
 function Tile({ doc, label, myKey, onOpen }: {
   doc?: TxDoc
   label: 'Order' | 'Commitment' | 'Contract' | 'Proof'
@@ -87,6 +93,7 @@ function Tile({ doc, label, myKey, onOpen }: {
 
 type Props = { row: FlowRow; myKey: string | null }
 
+// derive buyer and seller keys from order and commitment roles
 function deriveParties(order?: TxDoc, commitment?: TxDoc): { buyerKey: string; sellerKey: string } {
   const buyerSellerFallback = { buyerKey: commitment?.actorKey ?? '', sellerKey: order?.actorKey ?? '' }
   if (!order || !commitment) return buyerSellerFallback
@@ -106,6 +113,7 @@ export default function HistoryRow({ row, myKey }: Props) {
   const okArrow: React.CSSProperties = { alignSelf: 'center', color: '#29c467', fontWeight: 700 }
   const badArrow: React.CSSProperties = { alignSelf: 'center', color: '#ff5252', fontWeight: 700 }
 
+  // build and submit the contract funding tx from selected order and commitment
   async function handleConfirm(values: CreateContractValues) {
     try {
       if (!row.order || !row.commitment) {
@@ -152,6 +160,7 @@ export default function HistoryRow({ row, myKey }: Props) {
     }
   }
 
+  // build and submit a simple proof tx that references the contract
   async function handleSendProof() {
     try {
       if (!row.contract || !row.order || !row.commitment) return

@@ -47,12 +47,12 @@ export default class SpvEnricher {
         }
       }
 
-      // --- NEW: figure out which vout(s) on the contract we expect the proof to spend
+      // new: figure out which vouts on the contract we expect the proof to spend
       const expectedContractVouts = await this.lookupContractVouts(parentTxid)
 
       const proof = await this.woc.getTxProof(txid)
 
-      // If pending, still compute the strict parent check from the child hex
+      // if pending, still compute the strict parent check from the child hex
       if (typeof proof === 'number') {
         let parent: ParentCheck = 'unknown'
         try {
@@ -76,7 +76,7 @@ export default class SpvEnricher {
         return { state: 'invalid', parent, cached: false, updated: false, message: 'Header missing height/merkleroot' }
       }
 
-      // Confirmed: build BEEF & compute strict parent check (txid+vout set)
+      // confirmed: build beef and compute strict parent check using txid and vout set
       const txHex = await this.woc.getTxHex(txid)
       const parent = this.parentCheckFromHex(txHex, parentTxid, expectedContractVouts)
 
@@ -130,15 +130,15 @@ export default class SpvEnricher {
   }
 
   /**
-   * Return all overlay-recorded vouts for the given contract tx.
-   * We prefer rows where fields[0] === 'contract', but will include any rows for that txid
-   * (defensive for multi-output contracts).
+   * return all overlay recorded vouts for the given contract tx
+   * prefer rows where fields[0] === 'contract', but include any rows for that txid
+   * this defends multi output contracts
    */
   private async lookupContractVouts(parentTxid?: string): Promise<number[]> {
     if (!parentTxid) return []
     const out: number[] = []
 
-    // Prefer explicit 'contract' rows
+    // prefer explicit contract rows
     const cur1 = this.records().find(
       { txid: parentTxid, 'fields.0': 'contract' },
       { projection: { outputIndex: 1 } }
@@ -147,7 +147,7 @@ export default class SpvEnricher {
       if (typeof doc?.outputIndex === 'number') out.push(doc.outputIndex)
     }
 
-    // If none found (or to catch multiple overlay outputs), include any rows for this txid
+    // if none found or to catch multiple overlay outputs, include any rows for this txid
     if (out.length === 0) {
       const cur2 = this.records().find(
         { txid: parentTxid },
@@ -158,18 +158,18 @@ export default class SpvEnricher {
       }
     }
 
-    // de-dupe & sort for stability
+    // de-dupe and sort for stability
     return Array.from(new Set(out)).sort((a, b) => a - b)
   }
 
   /**
-   * Strict parent check using only data we already fetch/store:
-   * - Parse child (proof) tx inputs from raw hex
-   * - Compare against (parentTxid, expectedVouts[])
-   * Rules:
-   *   - If expectedVouts has N entries, require at least min(N, 2) matches.
-   *     (If your contract always has exactly two spendable outputs, this enforces "both".)
-   *   - If we have no vout info, fall back to txid-only.
+   * strict parent check using only data we already fetch or store
+   * steps:
+   * - parse child inputs from raw hex
+   * - compare to (parentTxid, expectedVouts[])
+   * rules:
+   * - if expectedVouts has n entries, require at least min(n, 2) matches
+   * - if there is no vout info, fall back to txid only
    */
   private parentCheckFromHex(childTxHex: string, declaredParentTxid?: string, expectedVouts: number[] = []): ParentCheck {
     if (!declaredParentTxid) return 'unknown'
@@ -177,7 +177,7 @@ export default class SpvEnricher {
       const child = Transaction.fromHex(childTxHex)
       const wantTxid = declaredParentTxid.toLowerCase()
 
-      // No vout info → txid-only match (legacy behavior)
+      // no vout info -> txid only match
       if (expectedVouts.length === 0) {
         const okTxid = child.inputs.some(
           i => typeof i.sourceTXID === 'string' && i.sourceTXID.toLowerCase() === wantTxid
@@ -185,7 +185,7 @@ export default class SpvEnricher {
         return okTxid ? 'match' : 'mismatch'
       }
 
-      // With vout list → count exact outpoint matches
+      // with vout list -> count exact outpoint matches
       const voutSet = new Set(expectedVouts)
       let matches = 0
       for (const i of child.inputs) {
@@ -198,8 +198,7 @@ export default class SpvEnricher {
         }
       }
 
-      // Threshold: require both when two are modeled; otherwise require all or at least one?
-      // To mirror your note "if there's two that match...", we require at least min(2, expectedVouts.length).
+      // threshold: require at least min(2, expectedVouts.length)
       const required = Math.min(2, expectedVouts.length)
       return matches >= required ? 'match' : 'mismatch'
     } catch {
